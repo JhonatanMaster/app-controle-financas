@@ -142,21 +142,26 @@ O arquivo `frontend/.env.local` já aponta para `http://localhost:4000`. Abra
 ## Rodando com Docker
 
 O `docker-compose.yml` na raiz sobe os dois serviços expostos apenas em `127.0.0.1`
-(backend na 4000, frontend na 3000). Em produção, coloque um reverse proxy na frente
+(backend na 4100, frontend na 3100). Em produção, coloque um reverse proxy na frente
 (Nginx, Caddy ou Traefik) apontando um domínio para o frontend e um subdomínio para a API,
 com HTTPS.
 
 ```bash
+cp .env.example .env
 docker compose up -d --build
 ```
 
 Antes disso ajuste:
 
+- `.env` na raiz: `NEXT_PUBLIC_API_URL` com a URL pública da API (é embutida no build do frontend)
+  e, se as portas 3100 ou 4100 já estiverem ocupadas no servidor, `FRONTEND_HOST_PORT` e
+  `BACKEND_HOST_PORT` com portas livres
 - `backend/.env` com `FRONTEND_ORIGIN` e `APP_BASE_URL` em https e `COOKIE_DOMAIN` com o domínio
   pai que abrange frontend e API (ex.: `.app.seudominio.com` se o frontend for
   `app.seudominio.com` e a API `api.app.seudominio.com`)
-- o argumento `NEXT_PUBLIC_API_URL` do serviço `frontend` no `docker-compose.yml` com a URL
-  pública da API
+
+Se mudar `NEXT_PUBLIC_API_URL` depois de já ter feito o build, rode
+`docker compose build frontend` de novo, pois o valor fica fixo na imagem.
 
 ## Estrutura de dados resumida
 
