@@ -227,9 +227,10 @@ Aplicado via MCP em 3 migrations (`initial_schema`, `harden_functions`,
   carrinho automático, ir ao mercado, +1, finalizar com R$ 89,90, estoque atualizado, convite.
 
 ### Deploy (pendente de executar no VPS)
-- `docker-compose.yml` na raiz sobe `backend` (4000) e `frontend` (3000) em `127.0.0.1`;
-  o reverse proxy do VPS deve apontar `api.compras.seudominio.com` para 4000 e
-  `compras.seudominio.com` para 3000, com TLS.
+- `docker-compose.yml` na raiz sobe `backend` (4100) e `frontend` (3100) em `127.0.0.1`
+  (portas do host configuráveis via `.env` na raiz, pois 3000 já estava ocupada no VPS);
+  o reverse proxy do VPS deve apontar `api.compras.seudominio.com` para 4100 e
+  `compras.seudominio.com` para 3100, com TLS.
 - Preencher `backend/.env` no servidor a partir de `backend/.env.example`
   (`COOKIE_DOMAIN=.compras.seudominio.com`, `FRONTEND_ORIGIN` e `APP_BASE_URL` em https).
 
