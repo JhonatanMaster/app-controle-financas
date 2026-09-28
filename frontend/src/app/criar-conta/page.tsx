@@ -6,6 +6,8 @@ import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { AuthLayout } from "@/components/auth-layout";
+import { PasswordChecklist } from "@/components/password-checklist";
+import { isPasswordValid, PASSWORD_MIN_LENGTH } from "@/lib/password";
 import { Alert, Button, Input } from "@/components/ui";
 
 export default function SignupPage() {
@@ -53,8 +55,20 @@ export default function SignupPage() {
         <Input label="Seu nome" name="displayName" required value={form.displayName} onChange={update("displayName")} />
         <Input label="Nome da família / casa" name="familyName" placeholder="Ex.: Família Silva" required value={form.familyName} onChange={update("familyName")} />
         <Input label="E-mail" name="email" type="email" autoComplete="email" required value={form.email} onChange={update("email")} />
-        <Input label="Senha" name="password" type="password" autoComplete="new-password" minLength={8} required hint="Mínimo de 8 caracteres" value={form.password} onChange={update("password")} />
-        <Button type="submit" size="lg" loading={loading}>
+        <div>
+          <Input
+            label="Senha"
+            name="password"
+            type="password"
+            autoComplete="new-password"
+            minLength={PASSWORD_MIN_LENGTH}
+            required
+            value={form.password}
+            onChange={update("password")}
+          />
+          <PasswordChecklist value={form.password} />
+        </div>
+        <Button type="submit" size="lg" loading={loading} disabled={!isPasswordValid(form.password)}>
           Criar conta
         </Button>
       </form>

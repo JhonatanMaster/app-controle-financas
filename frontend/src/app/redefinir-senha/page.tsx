@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { AuthLayout } from "@/components/auth-layout";
+import { PasswordChecklist } from "@/components/password-checklist";
+import { isPasswordValid, PASSWORD_MIN_LENGTH } from "@/lib/password";
 import { Alert, Button, Input, Spinner } from "@/components/ui";
 
 export default function ResetPasswordPage() {
@@ -57,9 +59,21 @@ function ResetPasswordForm() {
     <AuthLayout title="Nova senha" subtitle={`Definindo nova senha para ${email}`}>
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {error ? <Alert>{error}</Alert> : null}
-        <Input label="Nova senha" name="password" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} />
-        <Input label="Confirmar senha" name="confirm" type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-        <Button type="submit" size="lg" loading={loading}>
+        <div>
+          <Input
+            label="Nova senha"
+            name="password"
+            type="password"
+            autoComplete="new-password"
+            minLength={PASSWORD_MIN_LENGTH}
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <PasswordChecklist value={password} />
+        </div>
+        <Input label="Confirmar senha" name="confirm" type="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        <Button type="submit" size="lg" loading={loading} disabled={!isPasswordValid(password)}>
           Salvar nova senha
         </Button>
       </form>
