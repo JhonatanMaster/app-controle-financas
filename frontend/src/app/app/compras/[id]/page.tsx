@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { useFamilyData } from "@/lib/use-family-data";
-import type { PurchaseDetail, PurchaseItem, StockItem } from "@/lib/types";
+import type { PurchaseDetail, PurchaseItem, StockGroup, StockItem } from "@/lib/types";
 import { formatBRL, formatDate, formatQty } from "@/lib/format";
-import { Alert, Badge, Button, Card, Empty, Input, PageTitle, Spinner } from "@/components/ui";
+import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
+import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
 export default function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +51,12 @@ export default function PurchaseDetailPage() {
 
   const isOpen = !purchase.finalized_at;
   const total = purchase.purchase_items.reduce((acc, it) => acc + it.quantity, 0);
+  // Item avulso guarda a propria secao, o item de estoque herda a dele
+  const itemSections = groupIntoSections(purchase.purchase_items, (item) => {
+    const group = item.stock_groups ?? item.stock_items?.stock_groups ?? null;
+    return { id: group?.id ?? null, name: group?.name ?? null, sortOrder: group?.sort_order ?? null };
+  });
+  const showItemHeaders = shouldShowHeaders(itemSections);
 
   return (
     <>
@@ -98,25 +105,30 @@ export default function PurchaseDetailPage() {
         />
       ) : (
         <Card className="divide-y divide-line p-0">
-          {purchase.purchase_items.map((item) => (
-            <div key={item.id} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-ink">{item.item_name}</p>
-                <p className="text-xs text-muted">
-                  {item.stock_items ? `estoque: ${formatQty(item.stock_items.current_quantity)} · ideal ${formatQty(item.stock_items.ideal_quantity)} ${item.stock_items.unit}` : "item avulso"}
-                </p>
-              </div>
-              {isOpen ? (
-                <div className="flex items-center gap-2">
-                  <QtyButton label="−" onClick={() => changeQty(item, -1)} disabled={busy === item.id} />
-                  <span className="w-8 text-center text-lg font-semibold text-ink">{formatQty(item.quantity)}</span>
-                  <QtyButton label="+" onClick={() => changeQty(item, 1)} disabled={busy === item.id} primary />
+          {itemSections.map((section) => (
+            <div key={section.key}>
+              {showItemHeaders ? <SectionHeader>{section.label}</SectionHeader> : null}
+              {section.items.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 border-t border-line px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-ink">{item.item_name}</p>
+                    <p className="text-xs text-muted">
+                      {item.stock_items ? `estoque: ${formatQty(item.stock_items.current_quantity)} · ideal ${formatQty(item.stock_items.ideal_quantity)} ${item.stock_items.unit}` : "item avulso"}
+                    </p>
+                  </div>
+                  {isOpen ? (
+                    <div className="flex items-center gap-2">
+                      <QtyButton label="−" onClick={() => changeQty(item, -1)} disabled={busy === item.id} />
+                      <span className="w-8 text-center text-lg font-semibold text-ink">{formatQty(item.quantity)}</span>
+                      <QtyButton label="+" onClick={() => changeQty(item, 1)} disabled={busy === item.id} primary />
+                    </div>
+                  ) : (
+                    <span className="text-lg font-semibold text-ink">
+                      {formatQty(item.quantity)} <span className="text-xs font-normal text-muted">{item.stock_items?.unit ?? "un"}</span>
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <span className="text-lg font-semibold text-ink">
-                  {formatQty(item.quantity)} <span className="text-xs font-normal text-muted">{item.stock_items?.unit ?? "un"}</span>
-                </span>
-              )}
+              ))}
             </div>
           ))}
         </Card>
@@ -189,15 +201,18 @@ function QtyButton({ label, onClick, disabled, primary }: { label: string; onCli
 
 function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { familyId: string; purchaseId: string; existingStockIds: string[]; onDone: () => void }) {
   const [stock, setStock] = useState<StockItem[]>([]);
+  const [groups, setGroups] = useState<StockGroup[]>([]);
   const [mode, setMode] = useState<"estoque" | "avulso">("estoque");
   const [stockItemId, setStockItemId] = useState("");
   const [itemName, setItemName] = useState("");
+  const [groupId, setGroupId] = useState("");
   const [qty, setQty] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     api<{ items: StockItem[] }>(`/families/${familyId}/stock-items`).then((r) => setStock(r.items)).catch(() => undefined);
+    api<{ groups: StockGroup[] }>(`/families/${familyId}/stock-groups`).then((r) => setGroups(r.groups)).catch(() => undefined);
   }, [familyId]);
 
   const available = stock.filter((s) => !existingStockIds.includes(s.id));
@@ -212,7 +227,10 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
     }
     setLoading(true);
     try {
-      const body = mode === "estoque" ? { stockItemId, quantity } : { itemName: itemName.trim(), quantity };
+      const body =
+        mode === "estoque"
+          ? { stockItemId, quantity }
+          : { itemName: itemName.trim(), quantity, groupId: groupId || null };
       await api(`/families/${familyId}/purchases/${purchaseId}/items`, { method: "POST", body });
       onDone();
     } catch (err) {
@@ -235,27 +253,35 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
         </div>
         <div className="grid grid-cols-[1fr_88px] gap-3">
           {mode === "estoque" ? (
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-ink">Item</span>
-              <select
-                required
-                value={stockItemId}
-                onChange={(e) => setStockItemId(e.target.value)}
-                className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-base text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
-              >
-                <option value="">Selecione…</option>
-                {available.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.unit})
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Select label="Item" name="stockItemId" required value={stockItemId} onChange={(e) => setStockItemId(e.target.value)}>
+              <option value="">Selecione…</option>
+              {available.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.unit})
+                </option>
+              ))}
+            </Select>
           ) : (
             <Input label="Nome" name="itemName" placeholder="Ex.: Refrigerante" required value={itemName} onChange={(e) => setItemName(e.target.value)} />
           )}
           <Input label="Qtd" name="qty" type="number" inputMode="decimal" min={0} step="any" required value={qty} onChange={(e) => setQty(e.target.value)} />
         </div>
+        {mode === "avulso" ? (
+          <Select
+            label="Grupo"
+            name="groupId"
+            value={groupId}
+            hint="Define em que seção do mercado o item aparece nesta lista"
+            onChange={(e) => setGroupId(e.target.value)}
+          >
+            <option value="">Sem grupo</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+          </Select>
+        ) : null}
         <div className="flex justify-end">
           <Button type="submit" loading={loading}>
             Adicionar

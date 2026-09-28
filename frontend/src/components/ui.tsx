@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes } from "react";
 
 function cx(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
@@ -55,6 +55,35 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ l
     </label>
   );
 });
+
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & { label?: string; hint?: string };
+
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select({ label, hint, className, id, children, ...rest }, ref) {
+  const selectId = id ?? rest.name;
+  return (
+    <label className="block" htmlFor={selectId}>
+      {label ? <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span> : null}
+      <select
+        ref={ref}
+        id={selectId}
+        className={cx(
+          "h-11 w-full rounded-xl border border-line bg-surface px-3 text-base text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20",
+          className,
+        )}
+        {...rest}
+      >
+        {children}
+      </select>
+      {hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
+    </label>
+  );
+});
+
+export function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-surface-2 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">{children}</div>
+  );
+}
 
 export function Card({ className, children }: { className?: string; children: React.ReactNode }) {
   return <div className={cx("rounded-2xl border border-line bg-surface p-4 shadow-sm", className)}>{children}</div>;
