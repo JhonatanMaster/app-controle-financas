@@ -139,29 +139,37 @@ O arquivo `frontend/.env.local` já aponta para `http://localhost:4000`. Abra
 5. Voltar ao Estoque e ver a quantidade atualizada
 6. Em Família, convidar alguém por e-mail e aceitar o convite pelo link recebido
 
-## Rodando com Docker
+## Rodando com Docker (produção)
 
-O `docker-compose.yml` na raiz sobe os dois serviços expostos apenas em `127.0.0.1`
-(backend na 4100, frontend na 3100). Em produção, coloque um reverse proxy na frente
-(Nginx, Caddy ou Traefik) apontando um domínio para o frontend e um subdomínio para a API,
-com HTTPS.
+O `docker-compose.yml` sobe `backend` e `frontend` sem publicar portas no host. Os containers
+entram em uma rede externa onde já existe um **Traefik** (por exemplo o do Dokploy) e carregam
+labels que criam as rotas: um host para o frontend, outro para a API, HTTPS via Let's Encrypt e
+redirecionamento de http para https.
+
+Pré requisitos no servidor:
+
+- Traefik com provider Docker habilitado, entrypoints `web` (80) e `websecure` (443) e um
+  certresolver chamado `letsencrypt`. É a configuração padrão do Dokploy.
+- Registros DNS tipo A para o host do frontend e o host da API apontando para o servidor.
+
+Passos:
 
 ```bash
-cp .env.example .env
+git clone <seu-fork> && cd <pasta>
+cp .env.example .env              # FRONTEND_HOST, API_HOST e PROXY_NETWORK
+cp backend/.env.example backend/.env   # chaves do Supabase, Resend e URLs em https
 docker compose up -d --build
 ```
 
-Antes disso ajuste:
+No `backend/.env` use `FRONTEND_ORIGIN` e `APP_BASE_URL` com `https://` + `FRONTEND_HOST`, e
+`COOKIE_DOMAIN` com o domínio pai que abrange os dois hosts (ex.: `.app.seudominio.com` para
+`app.seudominio.com` e `api.app.seudominio.com`).
 
-- `.env` na raiz: `NEXT_PUBLIC_API_URL` com a URL pública da API (é embutida no build do frontend)
-  e, se as portas 3100 ou 4100 já estiverem ocupadas no servidor, `FRONTEND_HOST_PORT` e
-  `BACKEND_HOST_PORT` com portas livres
-- `backend/.env` com `FRONTEND_ORIGIN` e `APP_BASE_URL` em https e `COOKIE_DOMAIN` com o domínio
-  pai que abrange frontend e API (ex.: `.app.seudominio.com` se o frontend for
-  `app.seudominio.com` e a API `api.app.seudominio.com`)
+Para atualizar depois de um `git pull`, rode `docker compose up -d --build` de novo. A URL da API
+é embutida no build do frontend a partir de `API_HOST`, então mudanças nela exigem rebuild.
 
-Se mudar `NEXT_PUBLIC_API_URL` depois de já ter feito o build, rode
-`docker compose build frontend` de novo, pois o valor fica fixo na imagem.
+Se o Traefik do seu servidor usar outros nomes de entrypoint ou de certresolver, ajuste as labels
+no `docker-compose.yml`.
 
 ## Estrutura de dados resumida
 
