@@ -9,22 +9,24 @@ import {
   setSessionCookies,
 } from "../lib/auth-context.js";
 import { sendPasswordRecoveryEmail } from "../lib/resend.js";
+import { passwordSchema } from "../lib/password.js";
 
 const signupSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: passwordSchema,
   displayName: z.string().min(1),
   familyName: z.string().min(1),
 });
 
+// No login nao validamos forca, so presenca, para nao travar quem ja tem conta
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(1),
 });
 
 const acceptInviteSchema = z.object({
   inviteId: z.string().uuid(),
-  password: z.string().min(8),
+  password: passwordSchema,
 });
 
 const forgotPasswordSchema = z.object({
@@ -34,14 +36,18 @@ const forgotPasswordSchema = z.object({
 const resetPasswordSchema = z.object({
   email: z.string().email(),
   token: z.string().min(1),
-  newPassword: z.string().min(8),
+  newPassword: passwordSchema,
 });
+
+function firstError(error: z.ZodError) {
+  return error.issues[0]?.message ?? "Dados invalidos";
+}
 
 export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/signup-family", async (request, reply) => {
     const parsed = signupSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos", details: parsed.error.flatten() });
+      return reply.code(400).send({ error: firstError(parsed.error) });
     }
     const { email, password, displayName, familyName } = parsed.data;
 
@@ -166,7 +172,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/accept-invite", async (request, reply) => {
     const parsed = acceptInviteSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: firstError(parsed.error) });
     }
     const { inviteId, password } = parsed.data;
 
@@ -256,7 +262,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/reset-password", async (request, reply) => {
     const parsed = resetPasswordSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: firstError(parsed.error) });
     }
     const { email, token, newPassword } = parsed.data;
 
