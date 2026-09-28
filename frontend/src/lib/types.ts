@@ -11,6 +11,12 @@ export type Me = {
   families: Membership[];
 };
 
+export type StockGroup = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
 export type StockItem = {
   id: string;
   family_id: string;
@@ -19,6 +25,8 @@ export type StockItem = {
   min_quantity: number;
   ideal_quantity: number;
   current_quantity: number;
+  group_id: string | null;
+  stock_groups: StockGroup | null;
   created_at: string;
   updated_at: string;
 };
@@ -32,6 +40,9 @@ export type ShoppingListItem = {
   ideal_quantity: number;
   current_quantity: number;
   suggested_quantity: number;
+  group_id: string | null;
+  group_name: string | null;
+  group_sort_order: number | null;
 };
 
 export type PurchaseSummary = {
@@ -53,7 +64,14 @@ export type PurchaseItem = {
   item_name: string;
   quantity: number;
   unit_price: number | null;
-  stock_items: { unit: string; ideal_quantity: number; current_quantity: number } | null;
+  group_id: string | null;
+  stock_groups: StockGroup | null;
+  stock_items: {
+    unit: string;
+    ideal_quantity: number;
+    current_quantity: number;
+    stock_groups: StockGroup | null;
+  } | null;
 };
 
 export type PurchaseSplit = {

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useFamilyData } from "@/lib/use-family-data";
 import type { PurchaseSummary, ShoppingListItem } from "@/lib/types";
 import { formatBRL, formatDate, formatQty } from "@/lib/format";
-import { Alert, Badge, Button, Card, Empty, Input, PageTitle, Spinner } from "@/components/ui";
+import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
+import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Spinner } from "@/components/ui";
 
 export default function ComprasPage() {
   const router = useRouter();
@@ -20,6 +21,15 @@ export default function ComprasPage() {
 
   const openPurchase = purchases.data?.find((p) => !p.finalized_at);
   const history = purchases.data?.filter((p) => p.finalized_at) ?? [];
+  const shoppingSections = useMemo(
+    () =>
+      groupIntoSections(shopping.data ?? [], (it) => ({
+        id: it.group_id,
+        name: it.group_name,
+        sortOrder: it.group_sort_order,
+      })),
+    [shopping.data],
+  );
 
   async function startPurchase() {
     if (!familyId) return;
@@ -74,17 +84,22 @@ export default function ComprasPage() {
           <Empty title="Nada para comprar" description="Quando algum item do estoque atingir o mínimo, ele aparece aqui." />
         ) : (
           <Card className="divide-y divide-line p-0">
-            {shopping.data.map((it) => (
-              <div key={it.stock_item_id} className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <p className="font-medium text-ink">{it.name}</p>
-                  <p className="text-xs text-muted">
-                    tem {formatQty(it.current_quantity)} · ideal {formatQty(it.ideal_quantity)} {it.unit}
-                  </p>
-                </div>
-                <span className="text-lg font-semibold text-ink">
-                  {formatQty(it.suggested_quantity)} <span className="text-xs font-normal text-muted">{it.unit}</span>
-                </span>
+            {shoppingSections.map((section) => (
+              <div key={section.key}>
+                {shouldShowHeaders(shoppingSections) ? <SectionHeader>{section.label}</SectionHeader> : null}
+                {section.items.map((it) => (
+                  <div key={it.stock_item_id} className="flex items-center justify-between border-t border-line px-4 py-3">
+                    <div>
+                      <p className="font-medium text-ink">{it.name}</p>
+                      <p className="text-xs text-muted">
+                        tem {formatQty(it.current_quantity)} · ideal {formatQty(it.ideal_quantity)} {it.unit}
+                      </p>
+                    </div>
+                    <span className="text-lg font-semibold text-ink">
+                      {formatQty(it.suggested_quantity)} <span className="text-xs font-normal text-muted">{it.unit}</span>
+                    </span>
+                  </div>
+                ))}
               </div>
             ))}
           </Card>

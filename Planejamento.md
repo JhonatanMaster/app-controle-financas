@@ -240,3 +240,25 @@ Aplicado via MCP em 3 migrations (`initial_schema`, `harden_functions`,
 - UI de pessoas e rateio por compra (backend já pronto), contas da casa (`bill_categories`,
   `bills`, `bill_splits` já existem no banco, faltam rotas e telas), e tela de comparativos
   (gastos por pessoa, mês a mês, itens consumidos).
+
+## Grupos de mercado por item (implementado em 2026-09-28)
+
+Cada item de estoque pode pertencer a um grupo, que representa a seção do supermercado.
+As listas passam a ser exibidas agrupadas, na ordem em que se percorre as gôndolas.
+
+- Tabela `stock_groups` por família, com `sort_order`. `stock_items.group_id` é opcional
+  (`on delete set null`), então apagar um grupo devolve os itens para a seção "Outros".
+- Toda família nova nasce com sete grupos, via `private.seed_stock_groups` chamado pelo trigger
+  `on_family_created`: Produtos de limpeza, Produtos para gato, Produtos de banheiro, Cozinha,
+  Açougue, Congelados, Frios e padaria. As famílias que já existiam receberam os mesmos grupos.
+- A view `shopping_list` passou a expor `group_id`, `group_name` e `group_sort_order`.
+- Rotas novas `GET` e `POST /families/:familyId/stock-groups`. Grupo criado pela pessoa entra no
+  fim da ordem. O backend recusa um `groupId` que seja de outra família, porque o RLS sozinho
+  libera os grupos de todas as casas de que a pessoa participa.
+- A ordenação por seção é aplicada no frontend, pelo helper `src/lib/group-items.ts`, porque o
+  PostgREST não ordena por coluna de tabela embarcada em dois níveis (caso do detalhe da compra).
+  O banco continua dono da ordem canônica em `sort_order`.
+- Itens sem grupo e itens avulsos da compra caem na seção "Outros", sempre por último. Quando
+  "Outros" é a única seção, os cabeçalhos somem para não poluir a tela.
+
+Fora de escopo nesta etapa: renomear, reordenar e excluir grupos, e uma tela dedicada de gestão.

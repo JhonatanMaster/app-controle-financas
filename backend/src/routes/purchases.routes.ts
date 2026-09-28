@@ -17,6 +17,7 @@ const addItemSchema = z.object({
   itemName: z.string().min(1).optional(),
   quantity: z.number().positive().default(1),
   unitPrice: z.number().nonnegative().optional(),
+  groupId: z.string().uuid().nullable().optional(),
 });
 
 const updateItemSchema = z.object({
@@ -76,9 +77,10 @@ export async function purchasesRoutes(app: FastifyInstance) {
     const { data, error } = await ctx.supabase
       .from("purchases")
       .select(
-        "*, purchase_items(id, stock_item_id, item_name, quantity, unit_price, stock_items(unit, ideal_quantity, current_quantity)), purchase_splits(id, person_id, amount, people(name))",
+        "*, purchase_items(id, stock_item_id, item_name, quantity, unit_price, group_id, stock_groups(id, name, sort_order), stock_items(unit, ideal_quantity, current_quantity, stock_groups(id, name, sort_order))), purchase_splits(id, person_id, amount, people(name))",
       )
       .eq("id", purchaseId)
+      .order("item_name", { referencedTable: "purchase_items", ascending: true })
       .single();
 
     if (error) return mapPgError(reply, error);
@@ -119,10 +121,12 @@ export async function purchasesRoutes(app: FastifyInstance) {
       const { data: suggestions } = await ctx.supabase
         .from("shopping_list")
         .select("stock_item_id, name, suggested_quantity")
-        .eq("family_id", familyId);
+        .eq("family_id", familyId)
+        .order("group_sort_order", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true });
 
       if (suggestions && suggestions.length > 0) {
-        await ctx.supabase.from("purchase_items").insert(
+        const { error: itemsError } = await ctx.supabase.from("purchase_items").insert(
           suggestions.map((s) => ({
             purchase_id: purchase.id,
             stock_item_id: s.stock_item_id,
@@ -130,6 +134,8 @@ export async function purchasesRoutes(app: FastifyInstance) {
             quantity: s.suggested_quantity,
           })),
         );
+        // Sem isso um carrinho nasceria vazio em silencio
+        if (itemsError) request.log.error(itemsError);
       }
     }
 
@@ -139,13 +145,26 @@ export async function purchasesRoutes(app: FastifyInstance) {
   app.post("/families/:familyId/purchases/:purchaseId/items", async (request, reply) => {
     const ctx = await requireAuth(request, reply);
     if (!ctx) return;
-    const { purchaseId } = request.params as { familyId: string; purchaseId: string };
+    const { familyId, purchaseId } = request.params as { familyId: string; purchaseId: string };
 
     const parsed = addItemSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Dados invalidos" });
     }
     const body = parsed.data;
+
+    if (body.groupId) {
+      const { data: group } = await ctx.supabase
+        .from("stock_groups")
+        .select("id")
+        .eq("id", body.groupId)
+        .eq("family_id", familyId)
+        .maybeSingle();
+
+      if (!group) {
+        return reply.code(400).send({ error: "Grupo invalido para esta familia" });
+      }
+    }
 
     let itemName = body.itemName;
     if (body.stockItemId) {
@@ -168,6 +187,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
         item_name: itemName,
         quantity: body.quantity,
         unit_price: body.unitPrice ?? null,
+        group_id: body.groupId ?? null,
       })
       .select()
       .single();

@@ -42,6 +42,8 @@ Prontas nesta versão:
 - Convite de membros por e-mail, que criam a própria senha pelo link
 - Recuperação de senha por e-mail
 - Estoque com mínimo, ideal, quantidade atual e botão de consumo
+- Grupos de mercado por item (limpeza, açougue, congelados e outros), com as listas
+  organizadas por seção na ordem em que se percorre o supermercado
 - Lista de compras automática
 - Modo mercado com ajuste de quantidades, itens extras e finalização
 - Compras avulsas, só com o valor ou detalhadas por item
@@ -177,10 +179,11 @@ no `docker-compose.yml`.
 |---|---|
 | `families`, `family_members` | Família e quem tem acesso (titular e membros convidados) |
 | `people` | Pessoas do rateio, com ou sem login |
+| `stock_groups` | Seções do mercado, na ordem em que se percorre as gôndolas |
 | `stock_items`, `stock_consumption_events` | Itens da despensa e registro de consumo |
 | `purchases`, `purchase_items`, `purchase_splits` | Compras, itens do carrinho e rateio |
 | `bill_categories`, `bills`, `bill_splits` | Contas da casa e rateio (próxima fase) |
-| view `shopping_list` | Itens no mínimo com a quantidade sugerida |
+| view `shopping_list` | Itens no mínimo, com quantidade sugerida e a seção do item |
 
 ## Licença
 

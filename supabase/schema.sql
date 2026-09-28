@@ -39,9 +39,20 @@ create table people (
   created_at timestamptz not null default now()
 );
 
+-- Secoes do mercado, na ordem em que se percorre as gondolas
+create table stock_groups (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references families(id) on delete cascade,
+  name text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  unique (family_id, name)
+);
+
 create table stock_items (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references families(id) on delete cascade,
+  group_id uuid references stock_groups(id) on delete set null,
   name text not null,
   unit text not null default 'un',
   min_quantity numeric not null default 0,
@@ -79,6 +90,8 @@ create table purchase_items (
   id uuid primary key default gen_random_uuid(),
   purchase_id uuid not null references purchases(id) on delete cascade,
   stock_item_id uuid references stock_items(id) on delete set null,
+  -- Item avulso nao tem item de estoque de onde herdar a secao, entao guarda a propria
+  group_id uuid references stock_groups(id) on delete set null,
   item_name text not null,
   quantity numeric not null default 1,
   unit_price numeric,
@@ -134,6 +147,7 @@ create index idx_people_family_id on people(family_id);
 create index idx_people_linked_member_id on people(linked_member_id);
 create index idx_purchase_items_purchase_id on purchase_items(purchase_id);
 create index idx_purchase_items_stock_item_id on purchase_items(stock_item_id);
+create index idx_purchase_items_group_id on purchase_items(group_id);
 create index idx_purchase_splits_person_id on purchase_splits(person_id);
 create index idx_purchases_created_by on purchases(created_by);
 create index idx_purchases_family_id on purchases(family_id);
@@ -142,6 +156,8 @@ create index idx_stock_consumption_events_created_by on stock_consumption_events
 create index idx_stock_consumption_events_family_id on stock_consumption_events(family_id);
 create index idx_stock_consumption_events_stock_item_id on stock_consumption_events(stock_item_id);
 create index idx_stock_items_family_id on stock_items(family_id);
+create index idx_stock_items_group_id on stock_items(group_id);
+create index idx_stock_groups_family_id on stock_groups(family_id);
 
 -- ========== Funcoes de autorizacao (schema private, fora da API REST)
 
@@ -184,7 +200,26 @@ grant execute on function private.is_family_titular(uuid) to authenticated;
 
 -- ========== Triggers
 
--- Quem cria a familia ja entra como titular ativo
+-- Grupos padrao na ordem em que se percorre o mercado, dos secos aos refrigerados
+create or replace function private.seed_stock_groups(target_family_id uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into stock_groups (family_id, name, sort_order)
+  values
+    (target_family_id, 'Produtos de limpeza', 1),
+    (target_family_id, 'Produtos para gato', 2),
+    (target_family_id, 'Produtos de banheiro', 3),
+    (target_family_id, 'Cozinha', 4),
+    (target_family_id, 'Açougue', 5),
+    (target_family_id, 'Congelados', 6),
+    (target_family_id, 'Frios e padaria', 7)
+  on conflict (family_id, name) do nothing;
+$$;
+
+-- Quem cria a familia ja entra como titular ativo e recebe os grupos padrao
 create or replace function private.handle_new_family()
 returns trigger
 language plpgsql
@@ -201,6 +236,9 @@ begin
     'ativo',
     now()
   );
+
+  perform private.seed_stock_groups(new.id);
+
   return new;
 end;
 $$;
@@ -392,22 +430,27 @@ create view shopping_list
 with (security_invoker = true)
 as
 select
-  id as stock_item_id,
-  family_id,
-  name,
-  unit,
-  min_quantity,
-  ideal_quantity,
-  current_quantity,
-  (ideal_quantity - current_quantity) as suggested_quantity
-from stock_items
-where current_quantity <= min_quantity;
+  si.id as stock_item_id,
+  si.family_id,
+  si.name,
+  si.unit,
+  si.min_quantity,
+  si.ideal_quantity,
+  si.current_quantity,
+  (si.ideal_quantity - si.current_quantity) as suggested_quantity,
+  si.group_id,
+  sg.name as group_name,
+  sg.sort_order as group_sort_order
+from stock_items si
+left join stock_groups sg on sg.id = si.group_id
+where si.current_quantity <= si.min_quantity;
 
 -- ========== Row Level Security
 
 alter table families enable row level security;
 alter table family_members enable row level security;
 alter table people enable row level security;
+alter table stock_groups enable row level security;
 alter table stock_items enable row level security;
 alter table stock_consumption_events enable row level security;
 alter table purchases enable row level security;
@@ -446,6 +489,9 @@ create policy "titular deletes family_members" on family_members
   for delete using (private.is_family_titular(family_id));
 
 create policy "members can manage people" on people
+  for all using (private.is_family_member(family_id)) with check (private.is_family_member(family_id));
+
+create policy "members can manage stock_groups" on stock_groups
   for all using (private.is_family_member(family_id)) with check (private.is_family_member(family_id));
 
 create policy "members can manage stock_items" on stock_items
