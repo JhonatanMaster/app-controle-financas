@@ -44,6 +44,12 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  /* Comportamento de app nativo, sem zoom por gesto nem pull to refresh */
+  touch-action: manipulation;
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input[type="number"]::-webkit-outer-spin-button,
