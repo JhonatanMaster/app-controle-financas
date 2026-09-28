@@ -37,6 +37,11 @@ const splitSchema = z.object({
   amount: z.number().nonnegative(),
 });
 
+const dateRangeSchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+});
+
 function mapPgError(reply: any, error: { code?: string; message: string }) {
   if (error.code === "42501") {
     return reply.code(403).send({ error: "Voce nao tem permissao para esta acao" });
@@ -52,7 +57,16 @@ export async function purchasesRoutes(app: FastifyInstance) {
     const ctx = await requireAuth(request, reply);
     if (!ctx) return;
     const { familyId } = request.params as { familyId: string };
-    const { status } = request.query as { status?: "aberta" | "finalizada" };
+    const { status, from, to } = request.query as {
+      status?: "aberta" | "finalizada";
+      from?: string;
+      to?: string;
+    };
+
+    const range = dateRangeSchema.safeParse({ from, to });
+    if (!range.success) {
+      return reply.code(400).send({ error: "Datas do filtro invalidas" });
+    }
 
     let query = ctx.supabase
       .from("purchases")
@@ -63,6 +77,8 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     if (status === "aberta") query = query.is("finalized_at", null);
     if (status === "finalizada") query = query.not("finalized_at", "is", null);
+    if (range.data.from) query = query.gte("purchase_date", range.data.from);
+    if (range.data.to) query = query.lte("purchase_date", range.data.to);
 
     const { data, error } = await query;
     if (error) return mapPgError(reply, error);

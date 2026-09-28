@@ -8,7 +8,17 @@ import { useFamilyData } from "@/lib/use-family-data";
 import type { PurchaseSummary, ShoppingListItem } from "@/lib/types";
 import { formatBRL, formatDate, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
-import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Spinner } from "@/components/ui";
+import {
+  addMonths,
+  monthLabel,
+  parseIsoDate,
+  periodOf,
+  startOfMonth,
+  toIsoDate,
+  type GroupBy,
+} from "@/lib/periods";
+import { MonthlyCostChart } from "@/components/monthly-cost-chart";
+import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
 export default function ComprasPage() {
   const router = useRouter();
@@ -19,8 +29,58 @@ export default function ComprasPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAvulsa, setShowAvulsa] = useState(false);
 
+  const [groupBy, setGroupBy] = useState<GroupBy>("mes");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [showChart, setShowChart] = useState(false);
+
   const openPurchase = purchases.data?.find((p) => !p.finalized_at);
-  const history = purchases.data?.filter((p) => p.finalized_at) ?? [];
+  const allHistory = useMemo(() => purchases.data?.filter((p) => p.finalized_at) ?? [], [purchases.data]);
+
+  const history = useMemo(() => {
+    if (groupBy !== "periodo") return allHistory;
+    return allHistory.filter((p) => (!from || p.purchase_date >= from) && (!to || p.purchase_date <= to));
+  }, [allHistory, groupBy, from, to]);
+
+  // Agrupa por semana ou mes; no periodo especifico o intervalo escolhido e o proprio grupo
+  const historyPeriods = useMemo(() => {
+    const buckets = new Map<string, { label: string; items: PurchaseSummary[]; total: number; pendentes: number }>();
+
+    for (const purchase of history) {
+      const { key, label } =
+        groupBy === "periodo"
+          ? { key: "periodo", label: periodRangeLabel(from, to) }
+          : periodOf(purchase.purchase_date, groupBy);
+
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { label, items: [], total: 0, pendentes: 0 };
+        buckets.set(key, bucket);
+      }
+      bucket.items.push(purchase);
+      if (purchase.total_value !== null) bucket.total += purchase.total_value;
+      else bucket.pendentes += 1;
+    }
+
+    return [...buckets.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, bucket]) => ({ key, ...bucket }));
+  }, [history, groupBy, from, to]);
+
+  const monthlyCost = useMemo(() => {
+    const base = startOfMonth(new Date());
+    return [2, 1, 0].map((back) => {
+      const monthStart = addMonths(base, -back);
+      const key = toIsoDate(monthStart);
+      const doMes = allHistory.filter((p) => toIsoDate(startOfMonth(parseIsoDate(p.purchase_date))) === key);
+      return {
+        key,
+        label: monthLabel(monthStart),
+        total: doMes.reduce((acc, p) => acc + (p.total_value ?? 0), 0),
+        purchases: doMes.length,
+      };
+    });
+  }, [allHistory]);
   const shoppingSections = useMemo(
     () =>
       groupIntoSections(shopping.data ?? [], (it) => ({
@@ -129,32 +189,95 @@ export default function ComprasPage() {
 
       <section className="mt-8">
         <h2 className="mb-3 text-base font-semibold text-ink">Histórico</h2>
+
+        <div className="mb-4 flex flex-col gap-3">
+          <Select label="Agrupar por" name="groupBy" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
+            <option value="semana">Semana</option>
+            <option value="mes">Mês</option>
+            <option value="periodo">Período específico</option>
+          </Select>
+
+          {groupBy === "periodo" ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="De" name="from" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+              <Input label="Até" name="to" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+            </div>
+          ) : null}
+        </div>
+
         {purchases.loading ? (
           <Spinner />
-        ) : history.length === 0 ? (
-          <Empty title="Nenhuma compra finalizada ainda" />
+        ) : historyPeriods.length === 0 ? (
+          <Empty
+            title={groupBy === "periodo" && (from || to) ? "Nenhuma compra neste período" : "Nenhuma compra finalizada ainda"}
+          />
         ) : (
-          <Card className="divide-y divide-line p-0">
-            {history.map((p) => (
-              <Link key={p.id} href={`/app/compras/${p.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-surface-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-ink">{formatDate(p.purchase_date)}</p>
-                    {p.type === "avulsa" ? <Badge>avulsa</Badge> : null}
+          <div className="flex flex-col gap-4">
+            {historyPeriods.map((period) => (
+              <div key={period.key}>
+                <div className="mb-2 flex items-baseline justify-between gap-3">
+                  <h3 className="text-sm font-semibold capitalize text-ink">{period.label}</h3>
+                  <div className="text-right">
+                    <span className="text-sm font-semibold text-ink tabular-nums">{formatBRL(period.total)}</span>
+                    {period.pendentes > 0 ? (
+                      <p className="text-xs text-muted">
+                        {period.pendentes} sem valor informado
+                      </p>
+                    ) : null}
                   </div>
-                  <p className="text-xs text-muted">{p.purchase_items?.[0]?.count ?? 0} itens</p>
                 </div>
-                <div className="text-right">
-                  <p className="font-semibold text-ink">{formatBRL(p.total_value)}</p>
-                  {p.value_status === "pendente" ? <Badge tone="warn">sem valor</Badge> : p.rateio_status === "fechado" ? <Badge tone="ok">rateado</Badge> : null}
-                </div>
-              </Link>
+                <Card className="divide-y divide-line p-0">
+                  {period.items.map((p) => (
+                    <Link key={p.id} href={`/app/compras/${p.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-surface-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-ink">{formatDate(p.purchase_date)}</p>
+                          {p.type === "avulsa" ? <Badge>avulsa</Badge> : null}
+                        </div>
+                        <p className="text-xs text-muted">{p.purchase_items?.[0]?.count ?? 0} itens</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-ink">{formatBRL(p.total_value)}</p>
+                        {p.value_status === "pendente" ? <Badge tone="warn">sem valor</Badge> : p.rateio_status === "fechado" ? <Badge tone="ok">rateado</Badge> : null}
+                      </div>
+                    </Link>
+                  ))}
+                </Card>
+              </div>
             ))}
-          </Card>
+          </div>
         )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="mb-3 text-base font-semibold text-ink">Gastos por mês</h2>
+        <Select
+          label="Gráfico"
+          name="showChart"
+          value={showChart ? "sim" : "nao"}
+          onChange={(e) => setShowChart(e.target.value === "sim")}
+        >
+          <option value="nao">Não mostrar</option>
+          <option value="sim">Custo dos últimos 3 meses</option>
+        </Select>
+
+        {showChart ? (
+          <Card className="mt-3">
+            <p className="text-sm font-medium text-ink">Custo dos últimos 3 meses</p>
+            <p className="mb-3 text-xs text-muted">Soma das compras com valor informado</p>
+            <MonthlyCostChart data={monthlyCost} />
+          </Card>
+        ) : null}
       </section>
     </>
   );
+}
+
+function periodRangeLabel(from: string, to: string) {
+  if (from && to) return `${formatDate(from)} a ${formatDate(to)}`;
+  if (from) return `A partir de ${formatDate(from)}`;
+  if (to) return `Até ${formatDate(to)}`;
+  return "Todo o período";
 }
 
 function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: string, detailed: boolean) => void }) {
