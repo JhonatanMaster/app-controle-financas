@@ -226,13 +226,15 @@ Aplicado via MCP em 3 migrations (`initial_schema`, `harden_functions`,
 - Fluxo também validado clicando na UI (Chrome): criar conta, cadastrar item, "Abri 1" x2,
   carrinho automático, ir ao mercado, +1, finalizar com R$ 89,90, estoque atualizado, convite.
 
-### Deploy (pendente de executar no VPS)
-- `docker-compose.yml` na raiz sobe `backend` (4100) e `frontend` (3100) em `127.0.0.1`
-  (portas do host configuráveis via `.env` na raiz, pois 3000 já estava ocupada no VPS);
-  o reverse proxy do VPS deve apontar `api.compras.seudominio.com` para 4100 e
-  `compras.seudominio.com` para 3100, com TLS.
-- Preencher `backend/.env` no servidor a partir de `backend/.env.example`
-  (`COOKIE_DOMAIN=.compras.seudominio.com`, `FRONTEND_ORIGIN` e `APP_BASE_URL` em https).
+### Deploy (compose manual no VPS, roteado pelo Traefik do Dokploy)
+- O VPS roda **Dokploy**, que mantém o Traefik (provider Docker por labels, rede
+  `dokploy-network`, entrypoints `web`/`websecure`, certresolver `letsencrypt`). A porta 3000
+  do host é o painel do Dokploy, por isso o app não pode publicar portas.
+- Fluxo escolhido pelo usuário: ssh no VPS, `git pull`, `docker compose up -d --build`. Igual ao
+  `nails-design-app-1`, que também é compose manual roteado por labels.
+- O `docker-compose.yml` anexa `backend` e `frontend` à rede externa `dokploy-network` e declara
+  labels do Traefik com os hosts vindos do `.env` da raiz (`FRONTEND_HOST`, `API_HOST`), para o
+  repositório não carregar domínio. O backend continua lendo `backend/.env`.
 
 ## Próxima fase: Rateio + Comparativos (Módulos 4, 5 e 6)
 - UI de pessoas e rateio por compra (backend já pronto), contas da casa (`bill_categories`,

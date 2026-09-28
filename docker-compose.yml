@@ -5,16 +5,47 @@ services:
     env_file: ./backend/.env
     environment:
       PORT: 4000
-    ports:
-      - "127.0.0.1:${BACKEND_HOST_PORT:-4100}:4000"
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${PROXY_NETWORK:-dokploy-network}
+      - traefik.http.routers.cf-backend.rule=Host(`${API_HOST}`)
+      - traefik.http.routers.cf-backend.entrypoints=websecure
+      - traefik.http.routers.cf-backend.tls.certresolver=letsencrypt
+      - traefik.http.routers.cf-backend.service=cf-backend
+      - traefik.http.services.cf-backend.loadbalancer.server.port=4000
+      - traefik.http.routers.cf-backend-http.rule=Host(`${API_HOST}`)
+      - traefik.http.routers.cf-backend-http.entrypoints=web
+      - traefik.http.routers.cf-backend-http.middlewares=cf-https-redirect
+      - traefik.http.middlewares.cf-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.cf-https-redirect.redirectscheme.permanent=true
 
   frontend:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_API_URL: https://${API_HOST}
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:${FRONTEND_HOST_PORT:-3100}:3000"
     depends_on:
       - backend
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${PROXY_NETWORK:-dokploy-network}
+      - traefik.http.routers.cf-frontend.rule=Host(`${FRONTEND_HOST}`)
+      - traefik.http.routers.cf-frontend.entrypoints=websecure
+      - traefik.http.routers.cf-frontend.tls.certresolver=letsencrypt
+      - traefik.http.routers.cf-frontend.service=cf-frontend
+      - traefik.http.services.cf-frontend.loadbalancer.server.port=3000
+      - traefik.http.routers.cf-frontend-http.rule=Host(`${FRONTEND_HOST}`)
+      - traefik.http.routers.cf-frontend-http.entrypoints=web
+      - traefik.http.routers.cf-frontend-http.middlewares=cf-https-redirect
+
+networks:
+  proxy:
+    name: ${PROXY_NETWORK:-dokploy-network}
+    external: true
