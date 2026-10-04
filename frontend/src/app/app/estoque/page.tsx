@@ -190,9 +190,9 @@ function StockItemForm({
     const name = newGroupName.trim();
     if (!name) return;
 
-    const existente = groups.find((g) => g.name.toLowerCase() === name.toLowerCase());
-    if (existente) {
-      setGroupId(existente.id);
+    const existing = groups.find((g) => g.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      setGroupId(existing.id);
       setNewGroupName("");
       setShowNewGroup(false);
       return;

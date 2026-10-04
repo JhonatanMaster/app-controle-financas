@@ -5,7 +5,7 @@ import { api, ApiError } from "./api";
 import { useSession } from "./session";
 
 /**
- * Busca `/families/:familyId${path}` para a familia ativa e expoe reload().
+ * Busca um recurso dentro do escopo da familia ativa e expoe reload() para recarregar.
  */
 export function useFamilyData<T>(path: string, pick: (raw: unknown) => T) {
   const { family } = useSession();

@@ -44,7 +44,7 @@ export default function ComprasPage() {
 
   // Agrupa por semana ou mes; no periodo especifico o intervalo escolhido e o proprio grupo
   const historyPeriods = useMemo(() => {
-    const buckets = new Map<string, { label: string; items: PurchaseSummary[]; total: number; pendentes: number }>();
+    const buckets = new Map<string, { label: string; items: PurchaseSummary[]; total: number; pending: number }>();
 
     for (const purchase of history) {
       const { key, label } =
@@ -54,12 +54,12 @@ export default function ComprasPage() {
 
       let bucket = buckets.get(key);
       if (!bucket) {
-        bucket = { label, items: [], total: 0, pendentes: 0 };
+        bucket = { label, items: [], total: 0, pending: 0 };
         buckets.set(key, bucket);
       }
       bucket.items.push(purchase);
       if (purchase.total_value !== null) bucket.total += purchase.total_value;
-      else bucket.pendentes += 1;
+      else bucket.pending += 1;
     }
 
     return [...buckets.entries()]
@@ -72,12 +72,12 @@ export default function ComprasPage() {
     return [2, 1, 0].map((back) => {
       const monthStart = addMonths(base, -back);
       const key = toIsoDate(monthStart);
-      const doMes = allHistory.filter((p) => toIsoDate(startOfMonth(parseIsoDate(p.purchase_date))) === key);
+      const monthPurchases = allHistory.filter((p) => toIsoDate(startOfMonth(parseIsoDate(p.purchase_date))) === key);
       return {
         key,
         label: monthLabel(monthStart),
-        total: doMes.reduce((acc, p) => acc + (p.total_value ?? 0), 0),
-        purchases: doMes.length,
+        total: monthPurchases.reduce((acc, p) => acc + (p.total_value ?? 0), 0),
+        purchases: monthPurchases.length,
       };
     });
   }, [allHistory]);
@@ -219,9 +219,9 @@ export default function ComprasPage() {
                   <h3 className="text-sm font-semibold capitalize text-ink">{period.label}</h3>
                   <div className="text-right">
                     <span className="text-sm font-semibold text-ink tabular-nums">{formatBRL(period.total)}</span>
-                    {period.pendentes > 0 ? (
+                    {period.pending > 0 ? (
                       <p className="text-xs text-muted">
-                        {period.pendentes} sem valor informado
+                        {period.pending} sem valor informado
                       </p>
                     ) : null}
                   </div>
