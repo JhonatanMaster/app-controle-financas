@@ -6,6 +6,7 @@ import {
   clearSessionCookies,
   getRefreshToken,
   requireAuth,
+  resolveAuth,
   setSessionCookies,
 } from "../lib/auth-context.js";
 import { sendPasswordRecoveryEmail } from "../lib/resend.js";
@@ -95,7 +96,7 @@ export async function authRoutes(app: FastifyInstance) {
       .eq("family_id", family.id)
       .eq("user_id", created.user.id);
 
-    setSessionCookies(reply, signedIn.session);
+    setSessionCookies(request, reply, signedIn.session);
 
     return reply.code(201).send({
       user: { id: created.user.id, email, displayName },
@@ -106,21 +107,23 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/login", async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     const { data, error } = await supabaseAuthClient.auth.signInWithPassword(parsed.data);
 
     if (error || !data.session) {
-      return reply.code(401).send({ error: "E-mail ou senha invalidos" });
+      return reply.code(401).send({ error: "E-mail ou senha inválidos" });
     }
 
-    setSessionCookies(reply, data.session);
+    setSessionCookies(request, reply, data.session);
     return reply.send({ user: { id: data.user.id, email: data.user.email } });
   });
 
   app.post("/auth/logout", async (request, reply) => {
-    const ctx = await requireAuth(request, reply).catch(() => null);
+    // resolveAuth em vez de requireAuth porque sair sem sessao valida tambem precisa responder ok,
+    // e um 401 aqui tentaria responder duas vezes a mesma requisicao
+    const ctx = await resolveAuth(request, reply).catch(() => null);
     if (ctx) {
       await ctx.supabase.auth.signOut();
     }
@@ -162,10 +165,10 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (error || !data.session) {
       clearSessionCookies(reply);
-      return reply.code(401).send({ error: "Nao foi possivel renovar a sessao" });
+      return reply.code(401).send({ error: "Não foi possível renovar a sessão" });
     }
 
-    setSessionCookies(reply, data.session);
+    setSessionCookies(request, reply, data.session);
     return reply.send({ ok: true });
   });
 
@@ -232,17 +235,17 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (linkError) {
       request.log.error(linkError);
-      return reply.code(500).send({ error: "Nao foi possivel vincular o convite a conta" });
+      return reply.code(500).send({ error: "Não foi possível vincular o convite à conta" });
     }
 
-    setSessionCookies(reply, session);
+    setSessionCookies(request, reply, session);
     return reply.send({ ok: true, familyId: invite.family_id });
   });
 
   app.post("/auth/forgot-password", async (request, reply) => {
     const parsed = forgotPasswordSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     const { data, error } = await supabaseAdmin.auth.admin.generateLink({
@@ -281,10 +284,10 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (updateError) {
       request.log.error(updateError);
-      return reply.code(500).send({ error: "Nao foi possivel definir a nova senha" });
+      return reply.code(500).send({ error: "Não foi possível definir a nova senha" });
     }
 
-    setSessionCookies(reply, data.session);
+    setSessionCookies(request, reply, data.session);
     return reply.send({ ok: true });
   });
 }

@@ -15,6 +15,49 @@ type SessionState = {
 
 const SessionContext = createContext<SessionState | null>(null);
 const FAMILY_KEY = "cf.familyId";
+const ME_KEY = "cf.me";
+
+/**
+ * Ultimo /auth/me conhecido, usado quando a API nao responde. Nao guarda token nenhum, a sessao
+ * continua apenas nos cookies httpOnly, e so e descartado quando a API confirma que a sessao
+ * acabou. Assim abrir o app sem rede nao joga o usuario de volta para o login.
+ */
+function lerMeSalvo(): Me | null {
+  try {
+    const bruto = localStorage.getItem(ME_KEY);
+    return bruto ? (JSON.parse(bruto) as Me) : null;
+  } catch {
+    return null;
+  }
+}
+
+function salvarMe(me: Me | null) {
+  try {
+    if (me) localStorage.setItem(ME_KEY, JSON.stringify(me));
+    else localStorage.removeItem(ME_KEY);
+  } catch {
+    // storage indisponivel
+  }
+}
+
+/**
+ * Busca o perfil e decide o que vale como sessao. Fica fora do componente para a carga inicial e
+ * o refresh tratarem cada tipo de falha do mesmo jeito.
+ *
+ * @returns O perfil, ou null quando nao ha mais sessao.
+ */
+async function carregarMe(): Promise<Me | null> {
+  try {
+    // O proprio api() renova a sessao e repete a chamada quando o access token expirou
+    return await api<Me>("/auth/me");
+  } catch (err) {
+    // Um 401 aqui ja passou pela renovacao, entao a sessao acabou de fato. Qualquer outra falha e
+    // rede ou servidor fora, e nesse caso o app segue com o ultimo perfil conhecido, porque ele e
+    // usado no mercado, com sinal ruim
+    if (err instanceof ApiError && err.status === 401) return null;
+    return lerMeSalvo();
+  }
+}
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
@@ -28,33 +71,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   });
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await api<Me>("/auth/me");
-      setMe(data);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) setMe(null);
-    } finally {
-      setLoading(false);
-    }
+  const aplicarMe = useCallback((valor: Me | null) => {
+    setMe(valor);
+    salvarMe(valor);
   }, []);
+
+  const refresh = useCallback(async () => {
+    const perfil = await carregarMe();
+    aplicarMe(perfil);
+    setLoading(false);
+  }, [aplicarMe]);
 
   useEffect(() => {
     let ignore = false;
-    api<Me>("/auth/me")
-      .then((data) => {
-        if (!ignore) setMe(data);
-      })
-      .catch(() => {
-        if (!ignore) setMe(null);
-      })
-      .finally(() => {
-        if (!ignore) setLoading(false);
-      });
+    carregarMe().then((perfil) => {
+      if (ignore) return;
+      aplicarMe(perfil);
+      setLoading(false);
+    });
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [aplicarMe]);
 
   const setFamilyId = useCallback((id: string) => {
     setFamilyIdState(id);
@@ -72,8 +110,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await api("/auth/logout", { method: "POST" }).catch(() => undefined);
-    setMe(null);
-  }, []);
+    aplicarMe(null);
+  }, [aplicarMe]);
 
   const value = useMemo(
     () => ({ me, loading, family, setFamilyId, refresh, logout }),
