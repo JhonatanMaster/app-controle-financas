@@ -308,6 +308,10 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
     }
   }
 
+  const campoData = (
+    <Input label="Data" name="date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+  );
+
   return (
     <Card>
       <form onSubmit={onSubmit} className="flex flex-col gap-3">
@@ -324,14 +328,19 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
             </button>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Data" name="date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
-          {mode === "simples" ? (
+        {mode === "simples" ? (
+          <div className="grid grid-cols-2 gap-3">
+            {campoData}
             <Input label="Valor (R$)" name="value" type="number" inputMode="decimal" step="0.01" min={0} required value={value} onChange={(e) => setValue(e.target.value)} />
-          ) : (
-            <div className="flex items-end text-xs text-muted">Você vai adicionar os itens na próxima tela.</div>
-          )}
-        </div>
+          </div>
+        ) : (
+          // Sem o campo de valor o aviso ocupa a linha inteira, porque espremido ao lado da data
+          // ele quebrava em varias linhas e passava por cima do campo
+          <div className="flex flex-col gap-1.5">
+            {campoData}
+            <p className="text-xs text-muted">Você vai adicionar os itens na próxima tela.</p>
+          </div>
+        )}
         <Input label="Observação (opcional)" name="notes" placeholder="Ex.: compra do João no Extra" value={notes} onChange={(e) => setNotes(e.target.value)} />
         <div className="flex justify-end">
           <Button type="submit" loading={loading}>

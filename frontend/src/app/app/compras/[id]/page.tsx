@@ -155,7 +155,11 @@ export default function PurchaseDetailPage() {
             </div>
           ) : null}
 
-          <div className="fixed inset-x-0 bottom-16 z-10 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mt-8 md:border-0 md:bg-transparent md:p-0">
+          {/* Reserva no fluxo a altura que a barra de total ocupa flutuando, senao ela cobre o fim
+              da tela, que e justamente onde fica o formulario de adicionar item */}
+          <div className="h-24 md:hidden" aria-hidden />
+
+          <div className="fixed inset-x-0 bottom-[calc(4rem_+_env(safe-area-inset-bottom))] z-10 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mt-8 md:border-0 md:bg-transparent md:p-0">
             <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
               <div>
                 <p className="text-xs text-muted">Total no carrinho</p>

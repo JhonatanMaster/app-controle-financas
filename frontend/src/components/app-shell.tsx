@@ -59,9 +59,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="max-w-[50%] truncate text-xs text-muted">{family?.families?.name}</span>
         </header>
 
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-24 pt-5 md:px-8 md:pb-10">{children}</main>
+        {/* O respiro de baixo soma a altura da barra de navegacao com a faixa de gestos do aparelho,
+            senao o ultimo bloco de cada tela fica embaixo da navegacao */}
+        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-5 pb-[calc(6rem_+_env(safe-area-inset-bottom))] md:px-8 md:pb-10">
+          {children}
+        </main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-line bg-surface/95 backdrop-blur md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
           {NAV.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}

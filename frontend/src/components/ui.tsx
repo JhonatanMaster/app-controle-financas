@@ -38,13 +38,15 @@ type InputProps = InputHTMLAttributes<HTMLInputElement> & { label?: string; erro
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ label, error, hint, className, id, ...rest }, ref) {
   const inputId = id ?? rest.name;
   return (
-    <label className="block" htmlFor={inputId}>
+    // min-w-0 porque item de grid ou flex nao encolhe abaixo do conteudo por padrao, e os campos
+    // nativos de data tem largura intrinseca propria no Safari, que vazava por cima do campo ao lado
+    <label className="block min-w-0" htmlFor={inputId}>
       {label ? <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span> : null}
       <input
         ref={ref}
         id={inputId}
         className={cx(
-          "h-11 w-full rounded-xl border bg-surface px-3.5 text-base text-ink outline-none transition placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20",
+          "h-11 w-full min-w-0 appearance-none rounded-xl border bg-surface px-3.5 text-base text-ink outline-none transition placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20",
           error ? "border-red-500" : "border-line",
           className,
         )}
@@ -61,13 +63,13 @@ type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & { label?: string; h
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select({ label, hint, className, id, children, ...rest }, ref) {
   const selectId = id ?? rest.name;
   return (
-    <label className="block" htmlFor={selectId}>
+    <label className="block min-w-0" htmlFor={selectId}>
       {label ? <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span> : null}
       <select
         ref={ref}
         id={selectId}
         className={cx(
-          "h-11 w-full rounded-xl border border-line bg-surface px-3 text-base text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20",
+          "h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 text-base text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20",
           className,
         )}
         {...rest}

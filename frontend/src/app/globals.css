@@ -61,3 +61,21 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/*
+ * O campo de data do Safari no iPhone traz largura e altura proprias e centraliza o texto numa
+ * caixa interna. Sem isso ele ignora a largura da coluna do grid e invade o campo vizinho.
+ */
+input[type="date"] {
+  min-width: 0;
+  max-width: 100%;
+  display: block;
+}
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  margin-left: 0;
+  opacity: 0.6;
+}
