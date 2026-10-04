@@ -229,12 +229,37 @@ O raciocínio por trás de cada escolha, incluindo as alternativas descartadas, 
 | `bill_categories`, `bills`, `bill_splits` | Contas da casa e rateio (próxima fase) |
 | view `shopping_list` | Itens no mínimo, com quantidade sugerida e a seção do item |
 
-## Produção
+## Publicando num domínio
 
-Em produção a aplicação roda atrás de um reverse proxy com HTTPS automático, com os containers
-declarando as próprias rotas. A configuração dessa infraestrutura, com domínios, servidor e
-procedimentos de operação, é mantida num repositório privado. O `docker-compose.yml` daqui é
-voltado à avaliação local.
+Para pôr o app no ar atrás de um [Traefik](https://traefik.io) que já exista no servidor, aponte os
+dois nomes para a máquina no DNS e declare no `.env` da raiz:
+
+```bash
+FRONTEND_HOST=compras.seudominio.com
+API_HOST=api.compras.seudominio.com
+PROXY_NETWORK=dokploy-network     # a rede externa onde o Traefik enxerga os containers
+CERT_RESOLVER=letsencrypt         # o certresolver configurado no seu Traefik
+```
+
+Com `FRONTEND_HOST` definido, o `./compose.sh` acrescenta o `docker-compose.traefik.yml`, que troca
+as portas do host por rotas no proxy, com redirecionamento de HTTP para HTTPS e certificado
+automático. O backend passa a aceitar requisições vindas de `https://FRONTEND_HOST`, e o frontend é
+compilado chamando `https://API_HOST`.
+
+```bash
+./compose.sh up -d --build
+```
+
+O `--build` é necessário sempre que `API_HOST` mudar, porque esse endereço vai embutido no bundle do
+frontend. Lembre também de usar um `COOKIE_SECRET` próprio no `backend/.env`: num ambiente público o
+valor de desenvolvimento não serve.
+
+O DNS precisa estar propagado antes da primeira subida, senão o Let's Encrypt não emite o
+certificado. Um `404 page not found` ao abrir o domínio é o próprio Traefik dizendo que nenhuma rota
+casou, quase sempre porque os containers subiram sem as labels, ou seja, sem `FRONTEND_HOST`
+definido.
+
+Domínios, credenciais do servidor e procedimentos de operação continuam num repositório privado.
 
 ## Versões
 

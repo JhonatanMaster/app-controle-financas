@@ -136,8 +136,10 @@ portas, os containers entram na rede do proxy e declaram as próprias rotas por 
 automático. Os nomes de router e service levam um prefixo para não colidir com os demais sistemas,
 porque esses nomes são globais no Traefik.
 
-Essa configuração, junto com domínios e procedimentos do servidor, fica num repositório privado de
-infraestrutura. O compose deste repositório serve ao ambiente local descrito a seguir.
+As labels ficam num arquivo à parte, o `docker-compose.traefik.yml`, somado ao principal quando o
+`.env` da raiz traz um domínio. Domínios reais, credenciais do servidor e procedimentos de operação
+continuam num repositório privado de infraestrutura, mas a forma de publicar mora aqui, junto do
+código que ela publica.
 
 ### 10. Ambiente local com um único comando
 
@@ -189,7 +191,18 @@ A separação ficou em dois arquivos. O `docker-compose.yml` sobe só a aplicaç
 conexão do backend para apontar ao gateway interno, o que também impede uma credencial de projeto
 hospedado de vazar para o ambiente local.
 
-Quem escolhe entre os dois é o `compose.sh`, pela `SUPABASE_URL` do `backend/.env`. Uma URL ausente,
+A publicação seguiu o mesmo desenho, num terceiro arquivo. Daí a divisão que separa os quatro
+arquivos: o principal descreve a aplicação, o `local` substitui o Supabase hospedado, o `traefik`
+troca portas do host por rotas no proxy, e qualquer combinação deles é válida, inclusive um app
+público com banco em container.
+
+A regra de onde cada coisa mora saiu disso. Credencial fica no `backend/.env`, que é o arquivo
+entregue ao container e que serve também ao backend fora do Docker. Topologia fica no `.env` da
+raiz, porque é o compose que sabe em que porta ou domínio o app foi publicado, e é ele que precisa
+contar isso ao backend através de `FRONTEND_ORIGIN` e `APP_BASE_URL`.
+
+Quem escolhe a combinação é o `compose.sh`, pela `SUPABASE_URL` do `backend/.env` e pelo
+`FRONTEND_HOST` do `.env` da raiz. Uma URL ausente,
 vazia ou apontando para a própria máquina significa que o banco precisa ser criado, e é esse último
 caso que mantém o `backend/.env.example` funcionando: ele vem preenchido com o endereço do gateway
 local, então copiá-lo não engana a escolha.

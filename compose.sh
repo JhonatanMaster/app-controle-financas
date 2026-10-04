@@ -1,13 +1,19 @@
 #!/bin/sh
 #
-# Atalho para o docker compose que decide sozinho de onde vem o banco.
+# Atalho para o docker compose que monta a combinacao de arquivos certa para o ambiente.
 #
-# Com SUPABASE_URL de um projeto hospedado em backend/.env, sobe apenas backend e frontend,
-# ligados nesse projeto. Sem ela, ou apontando para a propria maquina, acrescenta o
-# docker-compose.local.yml, que poe Postgres, GoTrue e PostgREST em containers.
+# Duas perguntas, respondidas pela propria configuracao presente.
 #
-# A fonte e so o backend/.env porque e exatamente o arquivo que o compose entrega ao container.
-# Exportar a variavel no shell nao mudaria o que o backend recebe, entao tambem nao muda a escolha.
+#   De onde vem o banco, pela SUPABASE_URL do backend/.env. Um projeto hospedado dispensa os
+#   containers de banco. Ausente, vazia ou apontando para a propria maquina acrescenta o
+#   docker-compose.local.yml, com Postgres, GoTrue e PostgREST.
+#
+#   Como o app e publicado, pelo FRONTEND_HOST do .env da raiz. Com dominio definido acrescenta o
+#   docker-compose.traefik.yml, que troca as portas do host por rotas no Traefik. Sem ele, o app
+#   fica nas portas locais.
+#
+# A conexao e lida do backend/.env porque e o arquivo que o compose entrega ao container, e o
+# dominio do .env da raiz porque e de la que o compose tira o resto da configuracao de ambiente.
 #
 # Recebe os mesmos argumentos do docker compose, por exemplo
 #   ./compose.sh up --build -d
@@ -18,26 +24,34 @@ set -eu
 
 cd "$(dirname "$0")"
 
-url_do_supabase() {
-  [ -f backend/.env ] || return 0
+valor_de() {
+  arquivo="$2"
+  [ -f "$arquivo" ] || return 0
 
   # Ultima atribuicao valendo, ignorando linha comentada, aspas e espacos em volta
-  sed -n 's/^[[:space:]]*SUPABASE_URL[[:space:]]*=[[:space:]]*//p' backend/.env |
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$arquivo" |
     tail -n 1 |
     tr -d '"'\''' |
     sed 's/[[:space:]]*$//'
 }
 
-url="$(url_do_supabase)"
+arquivos="-f docker-compose.yml"
+origem_do_banco="Supabase hospedado"
+publicacao="nas portas locais"
 
-case "$url" in
+case "$(valor_de SUPABASE_URL backend/.env)" in
   # Vazia, ausente ou apontando para a propria maquina significa que o banco precisa ser criado
   "" | *localhost* | *127.0.0.1* | *'[::1]'* | *//gateway:*)
-    echo "Sem Supabase hospedado em backend/.env, subindo tambem o banco local em containers"
-    exec docker compose -f docker-compose.yml -f docker-compose.local.yml "$@"
-    ;;
-  *)
-    echo "Supabase hospedado configurado em backend/.env, subindo so a aplicacao"
-    exec docker compose -f docker-compose.yml "$@"
+    arquivos="$arquivos -f docker-compose.local.yml"
+    origem_do_banco="banco local em containers"
     ;;
 esac
+
+dominio="$(valor_de FRONTEND_HOST .env)"
+if [ -n "$dominio" ]; then
+  arquivos="$arquivos -f docker-compose.traefik.yml"
+  publicacao="em https://$dominio pelo Traefik"
+fi
+
+echo "Subindo com $origem_do_banco, $publicacao"
+exec docker compose $arquivos "$@"

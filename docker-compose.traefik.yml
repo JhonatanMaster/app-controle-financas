@@ -1,0 +1,63 @@
+# Publica a aplicacao num dominio, atraves de um Traefik que ja exista no servidor. Usado junto do
+# docker-compose.yml, e o ./compose.sh acrescenta este arquivo quando encontra FRONTEND_HOST no
+# .env da raiz.
+#
+# Exige no .env da raiz os dois dominios
+#   FRONTEND_HOST   dominio do app, por exemplo compras.seudominio.com
+#   API_HOST        dominio da API, por exemplo api.compras.seudominio.com
+#
+# O resto continua vindo de onde ja vinha. Credencial fica no backend/.env, inclusive o
+# COOKIE_SECRET, que num ambiente publico precisa ser um valor proprio.
+#
+# Os dois dominios precisam apontar para o servidor no DNS antes da primeira subida, senao o
+# Let's Encrypt nao consegue emitir o certificado.
+
+services:
+  backend:
+    environment:
+      FRONTEND_ORIGIN: https://${FRONTEND_HOST}
+      APP_BASE_URL: https://${FRONTEND_HOST}
+    # Quem publica e o Traefik, pela rede interna, entao nao ha porta no host
+    ports: !reset []
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${PROXY_NETWORK:-dokploy-network}
+      - traefik.http.routers.cf-backend.rule=Host(`${API_HOST}`)
+      - traefik.http.routers.cf-backend.entrypoints=websecure
+      - traefik.http.routers.cf-backend.tls.certresolver=${CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.cf-backend.service=cf-backend
+      - traefik.http.services.cf-backend.loadbalancer.server.port=4000
+      - traefik.http.routers.cf-backend-http.rule=Host(`${API_HOST}`)
+      - traefik.http.routers.cf-backend-http.entrypoints=web
+      - traefik.http.routers.cf-backend-http.middlewares=cf-https-redirect
+      - traefik.http.middlewares.cf-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.cf-https-redirect.redirectscheme.permanent=true
+
+  frontend:
+    build:
+      args:
+        # Vai embutida no bundle, por isso mudar o dominio da API exige rebuild do frontend
+        NEXT_PUBLIC_API_URL: https://${API_HOST}
+    ports: !reset []
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${PROXY_NETWORK:-dokploy-network}
+      - traefik.http.routers.cf-frontend.rule=Host(`${FRONTEND_HOST}`)
+      - traefik.http.routers.cf-frontend.entrypoints=websecure
+      - traefik.http.routers.cf-frontend.tls.certresolver=${CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.cf-frontend.service=cf-frontend
+      - traefik.http.services.cf-frontend.loadbalancer.server.port=3000
+      - traefik.http.routers.cf-frontend-http.rule=Host(`${FRONTEND_HOST}`)
+      - traefik.http.routers.cf-frontend-http.entrypoints=web
+      - traefik.http.routers.cf-frontend-http.middlewares=cf-https-redirect
+
+networks:
+  proxy:
+    name: ${PROXY_NETWORK:-dokploy-network}
+    external: true
