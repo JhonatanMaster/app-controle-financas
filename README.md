@@ -4,6 +4,8 @@ Web app para organizar as finanças de uma casa em família: controla o estoque 
 monta a lista de compras sozinho, acompanha as compras no mercado e divide as despesas entre
 os moradores.
 
+**Versão atual: 1.3.0** · [histórico de versões](#versões) · [decisões de arquitetura](docs/arquitetura.md)
+
 ## A dor que ele resolve
 
 Quem cuida das compras da casa conhece o ciclo: descobre que o arroz acabou na hora de cozinhar,
@@ -36,29 +38,143 @@ rateio de cada compra e das contas da casa entre as pessoas, e comparativos de g
 
 ## Funcionalidades
 
-Prontas nesta versão:
-
+**Acesso e família**
 - Cadastro do titular e criação da família
 - Convite de membros por e-mail, que criam a própria senha pelo link
 - Recuperação de senha por e-mail
+- Senha forte validada na API, com checklist dos requisitos enquanto a pessoa digita
+
+**Estoque e compras**
 - Estoque com mínimo, ideal, quantidade atual e botão de consumo
-- Grupos de mercado por item (limpeza, açougue, congelados e outros), com as listas
+- Grupos de mercado por item (limpeza, açougue, congelados e outros), com todas as listas
   organizadas por seção na ordem em que se percorre o supermercado
 - Lista de compras automática
 - Modo mercado com ajuste de quantidades, itens extras e finalização
-- Compras avulsas, só com o valor ou detalhadas por item
-- Histórico de compras com valor pendente para preencher depois
-- Rateio de compras por pessoa, com a soma obrigatoriamente igual ao total (API pronta, tela em desenvolvimento)
+- Compras avulsas, só com o valor ou detalhadas por item, com seção própria
+
+**Gastos**
+- Histórico agrupado por semana, mês ou intervalo escolhido no calendário, com o total de cada período
+- Gráfico do custo dos últimos três meses
+- Rateio de compras por pessoa, com a soma obrigatoriamente igual ao total (disponível na API,
+  tela prevista para a próxima versão)
 
 Próximas etapas: tela de rateio, contas da casa (água, luz, internet, gás e outras) com rateio,
-e comparativos de gastos por pessoa, por mês e de itens consumidos.
+e comparativos de gastos por pessoa, por mês e de itens consumidos. O detalhamento está no
+[roadmap](docs/arquitetura.md#roadmap).
+
+## Avaliar localmente
+
+O único pré requisito é o [Docker](https://docs.docker.com/get-docker/) com Docker Compose
+(Docker Desktop no Windows e no macOS). Não precisa de Node, de conta no Supabase nem de
+configurar nada.
+
+```bash
+git clone https://github.com/JhonatanMaster/app-controle-financas.git
+cd app-controle-financas
+docker compose up -d --build
+```
+
+Abra [http://localhost:3000](http://localhost:3000) e crie uma conta. Você entra como titular de
+uma família nova, que já nasce com os grupos de mercado padrão.
+
+A primeira subida leva alguns minutos, porque baixa as imagens e compila a aplicação. As seguintes
+são rápidas. Para acompanhar até tudo ficar pronto:
+
+```bash
+docker compose ps
+```
+
+### O que sobe
+
+O compose monta um Supabase mínimo dentro do Docker, com os mesmos componentes que o sistema usa
+em produção, e a aplicação por cima dele:
+
+| Serviço | Papel |
+|---|---|
+| `db` | Postgres com as extensões e papéis do Supabase |
+| `auth` | GoTrue, a autenticação do Supabase |
+| `migrate` | Aplica `supabase/migrations` uma única vez e encerra |
+| `rest` | PostgREST, a API REST do Supabase |
+| `gateway` | Expõe autenticação e REST no formato de caminho do Supabase hospedado |
+| `backend` | API Fastify |
+| `frontend` | Interface Next.js |
+
+A ordem é garantida pelos healthchecks: o schema só é aplicado depois que a autenticação existe, e
+a API REST só sobe com o schema pronto.
+
+### O que testar
+
+1. Em **Estoque**, cadastre "Arroz" no grupo Cozinha, com mínimo 1 e ideal 3
+2. Clique em **Abri 1** duas vezes. O item cai no carrinho com sugestão de comprar 2
+3. Cadastre mais itens em grupos diferentes e consuma até o mínimo
+4. Em **Compras**, abra o carrinho automático e veja os itens separados por seção do mercado
+5. **Ir ao mercado**: ajuste as quantidades com + e −, adicione um item avulso escolhendo o grupo
+6. **Finalizar compra** com um valor e volte ao Estoque para ver as quantidades atualizadas
+7. No histórico, alterne entre semana, mês e período específico, e abra o gráfico no fim da página
+8. Em **Família**, convide um e-mail qualquer e abra o link do convite a partir do log
+
+### E-mails em ambiente local
+
+Nenhum e-mail sai de verdade. Convites e links de redefinição de senha são impressos no log do
+backend, prontos para abrir no navegador:
+
+```bash
+docker compose logs -f backend
+```
+
+Para testar o envio real, crie um `.env` na raiz a partir do `.env.example` com uma chave do
+[Resend](https://resend.com) e rode `docker compose up -d` de novo.
+
+### Endereços
+
+| Serviço | Endereço |
+|---|---|
+| Aplicação | http://localhost:3000 |
+| API | http://localhost:4000 (`/health` informa a versão) |
+| Postgres | `postgresql://postgres:postgres-local@localhost:54322/postgres` |
+
+Se alguma porta já estiver ocupada, copie `.env.example` para `.env` na raiz e ajuste.
+
+### Encerrando
+
+```bash
+docker compose down        # para tudo e preserva os dados
+docker compose down -v     # para tudo e apaga o banco, a próxima subida recomeça do zero
+```
+
+## Desenvolvimento sem Docker
+
+Para trabalhar no código com recarga automática, deixe só a infraestrutura no Docker e rode backend
+e frontend no Node 22:
+
+```bash
+docker compose up -d gateway
+
+cp backend/.env.example backend/.env
+cd backend && npm install && npm run dev       # API em http://localhost:4000
+
+cp frontend/.env.example frontend/.env.local
+cd frontend && npm install && npm run dev      # app em http://localhost:3000
+```
+
+Subir o `gateway` já traz junto banco, autenticação, migrations e REST, porque ele depende de todos.
+O `backend/.env.example` vem preenchido com os valores desse ambiente, então não há nada para editar.
+
+## Usando um Supabase hospedado
+
+Para apontar para um projeto no [supabase.com](https://supabase.com) em vez do ambiente local,
+rode `supabase/migrations/20260921000000_schema_inicial.sql` uma vez no SQL Editor do projeto e
+use no `backend/.env` a URL e as chaves que ficam em Project Settings, API Keys. A chave secreta
+dá acesso irrestrito ao banco e nunca deve ir para o frontend nem para o Git.
 
 ## Como funciona por dentro
 
 ```
 /frontend   Next.js 16, React 19, Tailwind 4. Interface web responsiva.
 /backend    Fastify + TypeScript. API REST, regras de negócio, e-mails.
-/supabase   schema.sql com tabelas, triggers e políticas de segurança.
+/supabase   Migrations com tabelas, triggers e políticas de segurança.
+/docker     Peças do ambiente local: gateway, papéis do Postgres e aplicação das migrations.
+/docs       Decisões de arquitetura.
 ```
 
 - O **frontend** nunca fala com o banco. Toda leitura e escrita passa pela API do backend, e a
@@ -66,112 +182,17 @@ e comparativos de gastos por pessoa, por mês e de itens consumidos.
 - O **backend** autentica o usuário no Supabase Auth e, nas demais chamadas, acessa o banco com o
   token do próprio usuário. Assim as políticas de Row Level Security do Postgres continuam valendo:
   mesmo que uma rota tenha um bug, uma família não consegue ler dados de outra.
-- O **banco** (Postgres no Supabase) guarda as regras que não podem falhar: o consumo decrementa o
-  estoque, finalizar uma compra incrementa o estoque uma única vez, e o rateio bloqueia qualquer
-  soma acima do total.
+- O **banco** guarda as regras que não podem falhar: o consumo decrementa o estoque, finalizar uma
+  compra incrementa o estoque uma única vez, e o rateio bloqueia qualquer soma acima do total.
 - Os **e-mails** de convite e recuperação de senha são enviados pelo Resend. O Resend só entrega;
   o conteúdo e a lógica ficam no backend.
+- **Erros do banco nunca chegam crus ao cliente**: a API traduz cada código do Postgres para uma
+  resposta própria e registra o resto no log.
+- A **configuração é validada na subida**: uma URL malformada ou a falta da chave de e-mail em
+  produção derrubam o boot com a causa explícita, em vez de falhar silenciosamente depois.
 
-## Rodando localmente
-
-### Pré requisitos
-
-- Node.js 22 ou superior
-- Uma conta no [Supabase](https://supabase.com) com um projeto criado
-- Uma conta no [Resend](https://resend.com) com um domínio verificado (ou use o domínio de testes
-  do Resend para enviar só para o seu próprio e-mail)
-
-### 1. Banco de dados
-
-No painel do Supabase, abra o SQL Editor e execute o conteúdo de `supabase/schema.sql`. Ele cria
-todas as tabelas, triggers, a view da lista de compras e as políticas de segurança.
-
-Depois copie, em Project Settings, API Keys:
-
-- a URL do projeto
-- a chave `anon` (ou `publishable`)
-- a chave `service_role` (esta nunca deve ir para o frontend nem para o Git)
-
-### 2. Backend
-
-```bash
-cd backend
-cp .env.example .env
-npm install
-npm run dev
-```
-
-Preencha o `.env`:
-
-```env
-PORT=4000
-FRONTEND_ORIGIN=http://localhost:3000
-COOKIE_SECRET=uma-frase-longa-e-aleatoria
-COOKIE_DOMAIN=
-
-SUPABASE_URL=https://SEU_PROJETO.supabase.co
-SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-
-RESEND_API_KEY=re_...
-RESEND_FROM_EMAIL=Controle Financas <no-reply@seudominio.com>
-APP_BASE_URL=http://localhost:3000
-```
-
-`COOKIE_DOMAIN` fica vazio em localhost. `APP_BASE_URL` é usado para montar os links dos e-mails.
-A API sobe em `http://localhost:4000` e responde `{"ok":true}` em `/health`.
-
-### 3. Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-O arquivo `frontend/.env.local` já aponta para `http://localhost:4000`. Abra
-`http://localhost:3000`, crie sua conta e comece cadastrando itens no Estoque.
-
-### Fluxo de teste sugerido
-
-1. Criar conta em `/criar-conta` (você vira o titular da família)
-2. Em Estoque, cadastrar "Arroz" com mínimo 1 e ideal 3
-3. Clicar "Abri 1" duas vezes e ver o item entrar no carrinho com sugestão de 2
-4. Em Compras, "Ir ao mercado", ajustar a quantidade, "Finalizar compra" informando o valor
-5. Voltar ao Estoque e ver a quantidade atualizada
-6. Em Família, convidar alguém por e-mail e aceitar o convite pelo link recebido
-
-## Rodando com Docker (produção)
-
-O `docker-compose.yml` sobe `backend` e `frontend` sem publicar portas no host. Os containers
-entram em uma rede externa onde já existe um **Traefik** (por exemplo o do Dokploy) e carregam
-labels que criam as rotas: um host para o frontend, outro para a API, HTTPS via Let's Encrypt e
-redirecionamento de http para https.
-
-Pré requisitos no servidor:
-
-- Traefik com provider Docker habilitado, entrypoints `web` (80) e `websecure` (443) e um
-  certresolver chamado `letsencrypt`. É a configuração padrão do Dokploy.
-- Registros DNS tipo A para o host do frontend e o host da API apontando para o servidor.
-
-Passos:
-
-```bash
-git clone <seu-fork> && cd <pasta>
-cp .env.example .env              # FRONTEND_HOST, API_HOST e PROXY_NETWORK
-cp backend/.env.example backend/.env   # chaves do Supabase, Resend e URLs em https
-docker compose up -d --build
-```
-
-No `backend/.env` use `FRONTEND_ORIGIN` e `APP_BASE_URL` com `https://` + `FRONTEND_HOST`, e
-`COOKIE_DOMAIN` com o domínio pai que abrange os dois hosts (ex.: `.app.seudominio.com` para
-`app.seudominio.com` e `api.app.seudominio.com`).
-
-Para atualizar depois de um `git pull`, rode `docker compose up -d --build` de novo. A URL da API
-é embutida no build do frontend a partir de `API_HOST`, então mudanças nela exigem rebuild.
-
-Se o Traefik do seu servidor usar outros nomes de entrypoint ou de certresolver, ajuste as labels
-no `docker-compose.yml`.
+O raciocínio por trás de cada escolha, incluindo as alternativas descartadas, está em
+[docs/arquitetura.md](docs/arquitetura.md).
 
 ## Estrutura de dados resumida
 
@@ -184,6 +205,83 @@ no `docker-compose.yml`.
 | `purchases`, `purchase_items`, `purchase_splits` | Compras, itens do carrinho e rateio |
 | `bill_categories`, `bills`, `bill_splits` | Contas da casa e rateio (próxima fase) |
 | view `shopping_list` | Itens no mínimo, com quantidade sugerida e a seção do item |
+
+## Produção
+
+Em produção a aplicação roda atrás de um reverse proxy com HTTPS automático, com os containers
+declarando as próprias rotas. A configuração dessa infraestrutura, com domínios, servidor e
+procedimentos de operação, é mantida num repositório privado. O `docker-compose.yml` daqui é
+voltado à avaliação local.
+
+## Versões
+
+O projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/):
+
+- **MAJOR** quando uma mudança quebra compatibilidade, seja no contrato da API, seja exigindo
+  migração manual de dados de quem já usa o sistema
+- **MINOR** para funcionalidade nova que não quebra nada existente
+- **PATCH** para correções
+
+Cada release tem uma tag `vX.Y.Z` no Git. As versões anteriores à 1.3.0 foram marcadas
+retroativamente, sobre os commits que fecharam cada entrega. A linha 1.x começa na primeira
+publicação em produção, com dados reais de uso; antes disso não houve release.
+
+### 1.3.0 · versão atual
+
+Histórico de gastos e acabamento para uso no celular.
+
+- Histórico de compras agrupado por semana, mês ou intervalo escolhido no calendário, com o total
+  de cada período ao lado
+- Compras finalizadas sem valor saem da soma e aparecem contadas à parte, para o total não enganar
+- Gráfico de barras com o custo dos últimos três meses, incluindo meses sem compra
+- Comportamento de app nativo: sem zoom por gesto ou duplo toque, sem pull to refresh e sem realce
+  ao tocar
+- Tratamento de erros do banco centralizado; a API deixou de devolver mensagens internas do Postgres
+- Mensagens da API e e-mails de convite e recuperação de senha revisados
+- `/health` passou a informar a versão em execução
+- Ambiente local completo com um único `docker compose up`: Postgres, autenticação e API REST do
+  Supabase sobem junto com a aplicação, e as migrations são aplicadas sozinhas. O único pré
+  requisito é o Docker
+- Resend opcional fora de produção: sem chave, os e-mails de convite e senha vão para o log do
+  backend. Rodando em https a chave continua obrigatória
+
+### 1.2.0
+
+Organização por seção do mercado.
+
+- Grupos de mercado por item, com sete grupos padrão criados para cada família na ordem em que se
+  percorre o supermercado, dos produtos de limpeza até frios e padaria
+- Criação de grupo novo direto no formulário do item, entrando no fim da ordem
+- Estoque, lista de compras automática e modo mercado agrupados por seção, com os itens sem grupo
+  reunidos em "Outros"
+- Item avulso da compra com seção própria, já que não tem item de estoque de onde herdar
+- Validação que impede marcar um item com grupo de outra família, caso não coberto pelo RLS para
+  quem participa de mais de uma casa
+
+### 1.1.0
+
+Segurança de acesso.
+
+- Política de senha forte, com mínimo de seis caracteres e presença de maiúscula, minúscula, número
+  e caractere especial, validada na API
+- Checklist visual dos requisitos, marcado conforme a pessoa digita, no cadastro, no aceite de
+  convite e na redefinição de senha
+- Correção: URLs públicas da configuração passaram a exigir endereço completo com https fora de
+  localhost. Um valor malformado deixava o CORS quebrado em produção sem nenhum erro no log; agora
+  o backend recusa subir e informa a causa
+
+### 1.0.0
+
+Primeira versão em produção.
+
+- Contas multi família com titular, convite de membros por e-mail e recuperação de senha
+- Isolamento entre famílias garantido por Row Level Security no banco, além das regras da API
+- Estoque com quantidade mínima e ideal e registro de consumo
+- Lista de compras montada automaticamente a partir do estoque
+- Modo mercado com ajuste de quantidades e finalização com valor informado na hora ou depois
+- Compras avulsas, simples ou detalhadas por item
+- Rateio de compras na API, com a soma igual ao total garantida por trigger
+- Deploy com Docker Compose atrás de Traefik, com HTTPS automático
 
 ## Licença
 
