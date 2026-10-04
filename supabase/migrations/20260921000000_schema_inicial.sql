@@ -1,5 +1,6 @@
--- Schema completo do Controle Financas para um projeto Supabase novo.
--- Rode no SQL Editor do Supabase (ou via supabase db push) uma unica vez.
+-- Schema inicial do Controle Financas.
+-- Aplicado automaticamente pelo supabase start no ambiente local. Num projeto Supabase
+-- hospedado, rode este arquivo uma unica vez no SQL Editor ou com supabase db push.
 
 -- ========== Enums
 

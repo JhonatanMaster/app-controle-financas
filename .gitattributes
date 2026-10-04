@@ -1,0 +1,4 @@
+# Scripts executados dentro de containers Linux precisam de quebra de linha LF, mesmo quando
+# o repositorio e clonado no Windows com conversao automatica ligada
+*.sh text eol=lf
+docker/* text eol=lf
