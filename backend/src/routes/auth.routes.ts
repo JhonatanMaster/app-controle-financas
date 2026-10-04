@@ -40,7 +40,7 @@ const resetPasswordSchema = z.object({
 });
 
 function firstError(error: z.ZodError) {
-  return error.issues[0]?.message ?? "Dados invalidos";
+  return error.issues[0]?.message ?? "Dados inválidos";
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -60,10 +60,10 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (createError || !created.user) {
       if (createError?.message?.toLowerCase().includes("already")) {
-        return reply.code(409).send({ error: "Ja existe uma conta com este e-mail" });
+        return reply.code(409).send({ error: "Já existe uma conta com este e-mail" });
       }
       request.log.error(createError);
-      return reply.code(500).send({ error: "Nao foi possivel criar a conta" });
+      return reply.code(500).send({ error: "Não foi possível criar a conta" });
     }
 
     const { data: signedIn, error: signInError } = await supabaseAuthClient.auth.signInWithPassword({
@@ -73,7 +73,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (signInError || !signedIn.session) {
       request.log.error(signInError);
-      return reply.code(500).send({ error: "Conta criada, mas falhou ao iniciar sessao" });
+      return reply.code(500).send({ error: "Conta criada, mas não foi possível iniciar a sessão" });
     }
 
     const userSupabase = supabaseForUser(signedIn.session.access_token);
@@ -86,7 +86,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (familyError || !family) {
       request.log.error(familyError);
-      return reply.code(500).send({ error: "Conta criada, mas falhou ao criar a familia" });
+      return reply.code(500).send({ error: "Conta criada, mas não foi possível criar a família" });
     }
 
     await userSupabase
@@ -140,7 +140,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (error) {
       request.log.error(error);
-      return reply.code(500).send({ error: "Falha ao carregar dados do usuario" });
+      return reply.code(500).send({ error: "Falha ao carregar os dados do usuário" });
     }
 
     return reply.send({
@@ -153,7 +153,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/refresh", async (request, reply) => {
     const refreshToken = getRefreshToken(request);
     if (!refreshToken) {
-      return reply.code(401).send({ error: "Sem sessao para renovar" });
+      return reply.code(401).send({ error: "Sem sessão para renovar" });
     }
 
     const { data, error } = await supabaseAuthClient.auth.refreshSession({
@@ -184,7 +184,7 @@ export async function authRoutes(app: FastifyInstance) {
       .maybeSingle();
 
     if (inviteError || !invite) {
-      return reply.code(404).send({ error: "Convite invalido ou ja utilizado" });
+      return reply.code(404).send({ error: "Convite inválido ou já utilizado" });
     }
 
     const email = invite.invited_email;
@@ -200,7 +200,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (createError) {
       if (!createError.message?.toLowerCase().includes("already")) {
         request.log.error(createError);
-        return reply.code(500).send({ error: "Nao foi possivel criar a conta" });
+        return reply.code(500).send({ error: "Não foi possível criar a conta" });
       }
       const { data: signedIn, error: signInError } = await supabaseAuthClient.auth.signInWithPassword({
         email,
@@ -208,7 +208,7 @@ export async function authRoutes(app: FastifyInstance) {
       });
       if (signInError || !signedIn.session) {
         return reply.code(401).send({
-          error: "Ja existe uma conta com este e-mail e a senha informada nao confere. Faca login normalmente.",
+          error: "Já existe uma conta com este e-mail e a senha informada não confere. Faça login normalmente.",
         });
       }
       session = signedIn.session;
@@ -219,7 +219,7 @@ export async function authRoutes(app: FastifyInstance) {
       });
       if (signInError || !signedIn.session) {
         request.log.error(signInError);
-        return reply.code(500).send({ error: "Conta criada, mas falhou ao iniciar sessao" });
+        return reply.code(500).send({ error: "Conta criada, mas não foi possível iniciar a sessão" });
       }
       session = signedIn.session;
     }
@@ -273,7 +273,7 @@ export async function authRoutes(app: FastifyInstance) {
     });
 
     if (error || !data.session) {
-      return reply.code(400).send({ error: "Link de recuperacao invalido ou expirado" });
+      return reply.code(400).send({ error: "Link de recuperação inválido ou expirado" });
     }
 
     const userSupabase = supabaseForUser(data.session.access_token);

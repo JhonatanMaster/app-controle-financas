@@ -8,8 +8,8 @@ export const PASSWORD_MIN_LENGTH = 6;
  */
 export const passwordSchema = z
   .string()
-  .min(PASSWORD_MIN_LENGTH, `A senha precisa ter no minimo ${PASSWORD_MIN_LENGTH} caracteres`)
-  .regex(/[A-Z]/, "A senha precisa ter uma letra maiuscula")
-  .regex(/[a-z]/, "A senha precisa ter uma letra minuscula")
-  .regex(/[0-9]/, "A senha precisa ter um numero")
+  .min(PASSWORD_MIN_LENGTH, `A senha precisa ter no mínimo ${PASSWORD_MIN_LENGTH} caracteres`)
+  .regex(/[A-Z]/, "A senha precisa ter uma letra maiúscula")
+  .regex(/[a-z]/, "A senha precisa ter uma letra minúscula")
+  .regex(/[0-9]/, "A senha precisa ter um número")
   .regex(/[^A-Za-z0-9]/, "A senha precisa ter um caractere especial");

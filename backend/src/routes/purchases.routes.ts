@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../lib/auth-context.js";
+import { replyWithDbError } from "../lib/db-errors.js";
+import { groupBelongsToFamily } from "../lib/stock-groups.js";
 
 const createPurchaseSchema = z.object({
   type: z.enum(["reposicao", "avulsa"]).default("reposicao"),
@@ -42,16 +44,6 @@ const dateRangeSchema = z.object({
   to: z.string().date().optional(),
 });
 
-function mapPgError(reply: any, error: { code?: string; message: string }) {
-  if (error.code === "42501") {
-    return reply.code(403).send({ error: "Voce nao tem permissao para esta acao" });
-  }
-  if (error.code === "P0001") {
-    return reply.code(400).send({ error: error.message });
-  }
-  return reply.code(400).send({ error: error.message });
-}
-
 export async function purchasesRoutes(app: FastifyInstance) {
   app.get("/families/:familyId/purchases", async (request, reply) => {
     const ctx = await requireAuth(request, reply);
@@ -65,7 +57,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     const range = dateRangeSchema.safeParse({ from, to });
     if (!range.success) {
-      return reply.code(400).send({ error: "Datas do filtro invalidas" });
+      return reply.code(400).send({ error: "Datas do filtro inválidas" });
     }
 
     let query = ctx.supabase
@@ -81,7 +73,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
     if (range.data.to) query = query.lte("purchase_date", range.data.to);
 
     const { data, error } = await query;
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ purchases: data });
   });
 
@@ -99,7 +91,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .order("item_name", { referencedTable: "purchase_items", ascending: true })
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ purchase: data });
   });
 
@@ -110,7 +102,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     const parsed = createPurchaseSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos", details: parsed.error.flatten() });
+      return reply.code(400).send({ error: "Dados inválidos", details: parsed.error.flatten() });
     }
     const body = parsed.data;
 
@@ -131,7 +123,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
 
     if (body.type === "reposicao" && body.fromShoppingList) {
       const { data: suggestions } = await ctx.supabase
@@ -165,21 +157,12 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     const parsed = addItemSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
     const body = parsed.data;
 
-    if (body.groupId) {
-      const { data: group } = await ctx.supabase
-        .from("stock_groups")
-        .select("id")
-        .eq("id", body.groupId)
-        .eq("family_id", familyId)
-        .maybeSingle();
-
-      if (!group) {
-        return reply.code(400).send({ error: "Grupo invalido para esta familia" });
-      }
+    if (body.groupId && !(await groupBelongsToFamily(ctx.supabase, familyId, body.groupId))) {
+      return reply.code(400).send({ error: "Grupo inválido para esta família" });
     }
 
     let itemName = body.itemName;
@@ -192,7 +175,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       itemName = itemName ?? stockItem?.name;
     }
     if (!itemName) {
-      return reply.code(400).send({ error: "Informe stockItemId ou itemName" });
+      return reply.code(400).send({ error: "Informe um item do estoque ou o nome do item avulso" });
     }
 
     const { data, error } = await ctx.supabase
@@ -208,7 +191,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.code(201).send({ item: data });
   });
 
@@ -220,12 +203,12 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     const parsed = updateItemSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     if (parsed.data.quantity === 0) {
       const { error } = await ctx.supabase.from("purchase_items").delete().eq("id", itemId);
-      if (error) return mapPgError(reply, error);
+      if (error) return replyWithDbError(request, reply, error);
       return reply.send({ removed: true });
     }
 
@@ -236,7 +219,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ item: data });
   });
 
@@ -246,7 +229,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
     const { itemId } = request.params as { familyId: string; purchaseId: string; itemId: string };
 
     const { error } = await ctx.supabase.from("purchase_items").delete().eq("id", itemId);
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ ok: true });
   });
 
@@ -259,7 +242,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     const parsed = finalizeSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     const { data: current, error: currentError } = await ctx.supabase
@@ -268,9 +251,9 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .eq("id", purchaseId)
       .single();
 
-    if (currentError) return mapPgError(reply, currentError);
+    if (currentError) return replyWithDbError(request, reply, currentError);
     if (current.finalized_at) {
-      return reply.code(409).send({ error: "Compra ja finalizada" });
+      return reply.code(409).send({ error: "Compra já finalizada" });
     }
 
     const hasValue = parsed.data.totalValue !== undefined;
@@ -287,7 +270,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ purchase: data });
   });
 
@@ -299,7 +282,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     const parsed = setValueSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     const { data, error } = await ctx.supabase
@@ -309,7 +292,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ purchase: data });
   });
 
@@ -325,11 +308,11 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .single();
 
     if (current?.finalized_at) {
-      return reply.code(409).send({ error: "Compra finalizada ja alimentou o estoque e nao pode ser excluida" });
+      return reply.code(409).send({ error: "Compra finalizada já alimentou o estoque e não pode ser excluída" });
     }
 
     const { error } = await ctx.supabase.from("purchases").delete().eq("id", purchaseId);
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ ok: true });
   });
 
@@ -342,7 +325,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     const parsed = splitSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     if (parsed.data.amount === 0) {
@@ -351,7 +334,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
         .delete()
         .eq("purchase_id", purchaseId)
         .eq("person_id", parsed.data.personId);
-      if (error) return mapPgError(reply, error);
+      if (error) return replyWithDbError(request, reply, error);
     } else {
       const { error } = await ctx.supabase
         .from("purchase_splits")
@@ -359,7 +342,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
           { purchase_id: purchaseId, person_id: parsed.data.personId, amount: parsed.data.amount },
           { onConflict: "purchase_id,person_id" },
         );
-      if (error) return mapPgError(reply, error);
+      if (error) return replyWithDbError(request, reply, error);
     }
 
     const { data: purchase, error: purchaseError } = await ctx.supabase
@@ -368,7 +351,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .eq("id", purchaseId)
       .single();
 
-    if (purchaseError) return mapPgError(reply, purchaseError);
+    if (purchaseError) return replyWithDbError(request, reply, purchaseError);
     return reply.send({ purchase });
   });
 }

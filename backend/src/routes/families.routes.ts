@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { requireAuth } from "../lib/auth-context.js";
+import { replyWithDbError } from "../lib/db-errors.js";
 import { sendFamilyInviteEmail } from "../lib/resend.js";
 
 const inviteSchema = z.object({
@@ -13,13 +14,6 @@ const personSchema = z.object({
   name: z.string().min(1),
   linkedMemberId: z.string().uuid().optional(),
 });
-
-function mapPgError(reply: any, error: { code?: string; message: string }) {
-  if (error.code === "42501") {
-    return reply.code(403).send({ error: "Voce nao tem permissao para esta acao" });
-  }
-  return reply.code(400).send({ error: error.message });
-}
 
 export async function familiesRoutes(app: FastifyInstance) {
   app.get("/families/:familyId/members", async (request, reply) => {
@@ -33,7 +27,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       .eq("family_id", familyId)
       .order("invited_at", { ascending: true });
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ members: data });
   });
 
@@ -44,7 +38,7 @@ export async function familiesRoutes(app: FastifyInstance) {
 
     const parsed = inviteSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     const { data: family, error: familyError } = await ctx.supabase
@@ -54,7 +48,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       .single();
 
     if (familyError || !family) {
-      return reply.code(404).send({ error: "Familia nao encontrada" });
+      return reply.code(404).send({ error: "Família não encontrada" });
     }
 
     const { data: member, error } = await ctx.supabase
@@ -69,7 +63,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
 
     const inviteUrl = `${env.APP_BASE_URL}/aceitar-convite?invite=${member.id}`;
     try {
@@ -78,7 +72,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       // Sem e-mail o convite e inalcancavel, entao desfaz para o titular poder tentar de novo
       request.log.error(err);
       await ctx.supabase.from("family_members").delete().eq("id", member.id);
-      return reply.code(502).send({ error: "Nao foi possivel enviar o e-mail de convite. Tente novamente." });
+      return reply.code(502).send({ error: "Não foi possível enviar o e-mail de convite. Tente novamente." });
     }
 
     return reply.code(201).send({ member });
@@ -90,7 +84,7 @@ export async function familiesRoutes(app: FastifyInstance) {
     const { memberId } = request.params as { familyId: string; memberId: string };
 
     const { error } = await ctx.supabase.from("family_members").delete().eq("id", memberId);
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ ok: true });
   });
 
@@ -105,7 +99,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       .eq("family_id", familyId)
       .order("created_at", { ascending: true });
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ people: data });
   });
 
@@ -116,7 +110,7 @@ export async function familiesRoutes(app: FastifyInstance) {
 
     const parsed = personSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     const { data, error } = await ctx.supabase
@@ -129,7 +123,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.code(201).send({ person: data });
   });
 
@@ -139,7 +133,7 @@ export async function familiesRoutes(app: FastifyInstance) {
     const { personId } = request.params as { familyId: string; personId: string };
 
     const { error } = await ctx.supabase.from("people").delete().eq("id", personId);
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error);
     return reply.send({ ok: true });
   });
 }

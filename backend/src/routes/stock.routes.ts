@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireAuth } from "../lib/auth-context.js";
+import { replyWithDbError } from "../lib/db-errors.js";
+import { groupBelongsToFamily } from "../lib/stock-groups.js";
 
 const createStockItemSchema = z.object({
   name: z.string().min(1),
@@ -29,37 +30,10 @@ const createGroupSchema = z.object({
 
 const ITEM_SELECT = "*, stock_groups(id, name, sort_order)";
 
-/**
- * O RLS libera os grupos de todas as familias de que a pessoa participa, entao quem
- * pertence a duas casas conseguiria marcar um item com o grupo da outra sem esta checagem.
- */
-async function groupBelongsToFamily(
-  ctx: { supabase: SupabaseClient },
-  familyId: string,
-  groupId: string,
-) {
-  const { data } = await ctx.supabase
-    .from("stock_groups")
-    .select("id")
-    .eq("id", groupId)
-    .eq("family_id", familyId)
-    .maybeSingle();
-
-  return Boolean(data);
-}
-
-function mapPgError(reply: any, error: { code?: string; message: string }) {
-  if (error.code === "42501") {
-    return reply.code(403).send({ error: "Voce nao tem permissao para esta acao" });
-  }
-  if (error.code === "23514") {
-    return reply.code(400).send({ error: "Quantidade invalida (estoque nao pode ficar negativo, ou minimo maior que ideal)" });
-  }
-  if (error.code === "23505") {
-    return reply.code(409).send({ error: "Ja existe um grupo com esse nome" });
-  }
-  return reply.code(400).send({ error: error.message });
-}
+const STOCK_DB_ERRORS = {
+  "23514": "Quantidade inválida: o estoque não pode ficar negativo nem o mínimo passar do ideal",
+  "23505": "Já existe um grupo com esse nome",
+};
 
 export async function stockRoutes(app: FastifyInstance) {
   app.get("/families/:familyId/stock-groups", async (request, reply) => {
@@ -73,7 +47,7 @@ export async function stockRoutes(app: FastifyInstance) {
       .eq("family_id", familyId)
       .order("sort_order", { ascending: true });
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
     return reply.send({ groups: data });
   });
 
@@ -106,7 +80,7 @@ export async function stockRoutes(app: FastifyInstance) {
       .select("id, name, sort_order")
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
     return reply.code(201).send({ group: data });
   });
 
@@ -121,7 +95,7 @@ export async function stockRoutes(app: FastifyInstance) {
       .eq("family_id", familyId)
       .order("name", { ascending: true });
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
     return reply.send({ items: data });
   });
 
@@ -137,7 +111,7 @@ export async function stockRoutes(app: FastifyInstance) {
       .order("group_sort_order", { ascending: true, nullsFirst: false })
       .order("name", { ascending: true });
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
     return reply.send({ items: data });
   });
 
@@ -148,11 +122,11 @@ export async function stockRoutes(app: FastifyInstance) {
 
     const parsed = createStockItemSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos", details: parsed.error.flatten() });
+      return reply.code(400).send({ error: "Dados inválidos", details: parsed.error.flatten() });
     }
 
-    if (parsed.data.groupId && !(await groupBelongsToFamily(ctx, familyId, parsed.data.groupId))) {
-      return reply.code(400).send({ error: "Grupo invalido para esta familia" });
+    if (parsed.data.groupId && !(await groupBelongsToFamily(ctx.supabase, familyId, parsed.data.groupId))) {
+      return reply.code(400).send({ error: "Grupo inválido para esta família" });
     }
 
     const { data, error } = await ctx.supabase
@@ -169,7 +143,7 @@ export async function stockRoutes(app: FastifyInstance) {
       .select(ITEM_SELECT)
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
     return reply.code(201).send({ item: data });
   });
 
@@ -180,11 +154,11 @@ export async function stockRoutes(app: FastifyInstance) {
 
     const parsed = updateStockItemSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
-    if (parsed.data.groupId && !(await groupBelongsToFamily(ctx, familyId, parsed.data.groupId))) {
-      return reply.code(400).send({ error: "Grupo invalido para esta familia" });
+    if (parsed.data.groupId && !(await groupBelongsToFamily(ctx.supabase, familyId, parsed.data.groupId))) {
+      return reply.code(400).send({ error: "Grupo inválido para esta família" });
     }
 
     const patch: Record<string, unknown> = {};
@@ -201,7 +175,7 @@ export async function stockRoutes(app: FastifyInstance) {
       .select(ITEM_SELECT)
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
     return reply.send({ item: data });
   });
 
@@ -211,7 +185,7 @@ export async function stockRoutes(app: FastifyInstance) {
     const { itemId } = request.params as { familyId: string; itemId: string };
 
     const { error } = await ctx.supabase.from("stock_items").delete().eq("id", itemId);
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
     return reply.send({ ok: true });
   });
 
@@ -223,7 +197,7 @@ export async function stockRoutes(app: FastifyInstance) {
 
     const parsed = consumeSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Dados invalidos" });
+      return reply.code(400).send({ error: "Dados inválidos" });
     }
 
     const { data, error } = await ctx.supabase
@@ -237,7 +211,7 @@ export async function stockRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return mapPgError(reply, error);
+    if (error) return replyWithDbError(request, reply, error, STOCK_DB_ERRORS);
 
     const { data: item } = await ctx.supabase
       .from("stock_items")
