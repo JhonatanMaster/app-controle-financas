@@ -71,7 +71,7 @@ configurar nada.
 ```bash
 git clone https://github.com/JhonatanMaster/app-controle-financas.git
 cd app-controle-financas
-docker compose up -d --build
+./compose.sh up -d --build
 ```
 
 Abra [http://localhost:3000](http://localhost:3000) e crie uma conta. Você entra como titular de
@@ -81,13 +81,18 @@ A primeira subida leva alguns minutos, porque baixa as imagens e compila a aplic
 são rápidas. Para acompanhar até tudo ficar pronto:
 
 ```bash
-docker compose ps
+./compose.sh ps
 ```
+
+O `compose.sh` repassa os argumentos para o `docker compose` e só decide de onde vem o banco, pela
+`SUPABASE_URL` do `backend/.env`. Sem um projeto hospedado ali, ele acrescenta o
+`docker-compose.local.yml` e sobe o Supabase em containers. Com um projeto hospedado, sobe apenas a
+aplicação. Veja [Usando um Supabase hospedado](#usando-um-supabase-hospedado).
 
 ### O que sobe
 
-O compose monta um Supabase mínimo dentro do Docker, com os mesmos componentes que o sistema usa
-em produção, e a aplicação por cima dele:
+Sem credenciais, o compose monta um Supabase mínimo dentro do Docker, com os mesmos componentes que
+o sistema usa em produção, e a aplicação por cima dele:
 
 | Serviço | Papel |
 |---|---|
@@ -138,8 +143,8 @@ Se alguma porta já estiver ocupada, copie `.env.example` para `.env` na raiz e 
 ### Encerrando
 
 ```bash
-docker compose down        # para tudo e preserva os dados
-docker compose down -v     # para tudo e apaga o banco, a próxima subida recomeça do zero
+./compose.sh down          # para tudo e preserva os dados
+./compose.sh down -v       # para tudo e apaga o banco, a próxima subida recomeça do zero
 ```
 
 ## Desenvolvimento sem Docker
@@ -148,7 +153,7 @@ Para trabalhar no código com recarga automática, deixe só a infraestrutura no
 e frontend no Node 22:
 
 ```bash
-docker compose up -d gateway
+./compose.sh up -d gateway
 
 cp backend/.env.example backend/.env
 cd backend && npm install && npm run dev       # API em http://localhost:4000
@@ -159,13 +164,31 @@ cd frontend && npm install && npm run dev      # app em http://localhost:3000
 
 Subir o `gateway` já traz junto banco, autenticação, migrations e REST, porque ele depende de todos.
 O `backend/.env.example` vem preenchido com os valores desse ambiente, então não há nada para editar.
+Esse caminho vale para quem está sem credenciais de um projeto hospedado, já que é o `SUPABASE_URL`
+do `backend/.env` que decide se o banco local existe.
 
 ## Usando um Supabase hospedado
 
-Para apontar para um projeto no [supabase.com](https://supabase.com) em vez do ambiente local,
-rode `supabase/migrations/20260921000000_schema_inicial.sql` uma vez no SQL Editor do projeto e
-use no `backend/.env` a URL e as chaves que ficam em Project Settings, API Keys. A chave secreta
-dá acesso irrestrito ao banco e nunca deve ir para o frontend nem para o Git.
+Rode `supabase/migrations/20260921000000_schema_inicial.sql` uma vez no SQL Editor do projeto e
+coloque no `backend/.env` a URL e as chaves que ficam em Project Settings, API Keys:
+
+```bash
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+A partir daí o `./compose.sh` sobe só `backend` e `frontend`, apontados para esse projeto, e os
+containers de banco, autenticação e REST deixam de existir. A chave secreta dá acesso irrestrito ao
+banco e nunca deve ir para o frontend nem para o Git.
+
+Para voltar ao banco local basta comentar o `SUPABASE_URL` ou devolvê-lo ao endereço do gateway,
+`http://127.0.0.1:54321`. Também dá para forçar a escolha a qualquer momento:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d   # sempre local
+docker compose -f docker-compose.yml up -d                               # sempre hospedado
+```
 
 ## Como funciona por dentro
 

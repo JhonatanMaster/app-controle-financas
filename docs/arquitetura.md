@@ -176,6 +176,30 @@ O schema também deixou de ser um arquivo avulso e virou a primeira migration. A
 serve ao ambiente local e a um projeto hospedado, e mudanças futuras entram como novas migrations
 em vez de edições num script gigante.
 
+### 11. O banco em container é um substituto, não o padrão
+
+O Supabase em containers existe para quem ainda não tem credenciais. Quando elas existem, subir um
+Postgres ao lado seria desperdício e, pior, uma fonte de confusão: o app apontaria para um banco
+vazio enquanto os dados reais estariam no projeto hospedado. Foi exatamente o que aconteceu quando o
+compose trazia `SUPABASE_URL` fixa apontando para o gateway interno, ignorando o `backend/.env`.
+
+A separação ficou em dois arquivos. O `docker-compose.yml` sobe só a aplicação e lê a conexão do
+`backend/.env`, o mesmo arquivo que serve ao backend rodando fora do Docker. O
+`docker-compose.local.yml` acrescenta `db`, `auth`, `migrate`, `rest` e `gateway`, e sobrescreve a
+conexão do backend para apontar ao gateway interno, o que também impede uma credencial de projeto
+hospedado de vazar para o ambiente local.
+
+Quem escolhe entre os dois é o `compose.sh`, pela `SUPABASE_URL` do `backend/.env`. Uma URL ausente,
+vazia ou apontando para a própria máquina significa que o banco precisa ser criado, e é esse último
+caso que mantém o `backend/.env.example` funcionando: ele vem preenchido com o endereço do gateway
+local, então copiá-lo não engana a escolha.
+
+O alvo da verificação é o `backend/.env` e nada mais, porque é o arquivo que o compose entrega ao
+container. Uma variável exportada no shell não mudaria o que o backend recebe, já que o valor do
+`env_file` prevalece, então também não deve mudar a decisão. Declarar a variável no `environment`
+para aceitar as duas origens não resolve: o Compose a anula quando ela não existe no ambiente, e o
+valor que vinha do `env_file` se perde.
+
 ## Modelo de dados
 
 | Entidade | Papel |
