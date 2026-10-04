@@ -159,6 +159,14 @@ As chaves do ambiente são JWTs assinados com um segredo local e validade longa,
 As chaves de demonstração do compose oficial do Supabase expiram em 2027, o que quebraria o
 ambiente sem nenhuma mudança no código.
 
+O arquivo que define a senha dos papéis internos merece um cuidado que não é óbvio. Ele roda dentro
+do `migrate.sh` da própria imagem do Postgres, junto dos scripts que criam os schemas do Supabase, e
+um erro ali interrompe a sequência inteira: o banco sobe saudável, porém sem as migrations
+seguintes. O sintoma aparece longe da causa, no GoTrue reiniciando sem parar com `must be owner of
+function uid`, porque o dono das funções do schema `auth` é ajustado por uma dessas migrations que
+nunca rodaram. Por isso o script só altera os papéis que existirem de fato, em vez de assumir a
+lista do compose oficial, que inclui papéis criados por serviços que este projeto não usa.
+
 O único serviço externo restante era o Resend. Sem a chave, o backend imprime o e-mail com o link
 no log em vez de enviar, o que mantém convite e recuperação de senha testáveis. Para isso nunca
 acontecer em produção por esquecimento, a chave é obrigatória sempre que a aplicação roda em https,
