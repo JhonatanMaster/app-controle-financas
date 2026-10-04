@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
@@ -6,6 +7,11 @@ import { authRoutes } from "./routes/auth.routes.js";
 import { familiesRoutes } from "./routes/families.routes.js";
 import { stockRoutes } from "./routes/stock.routes.js";
 import { purchasesRoutes } from "./routes/purchases.routes.js";
+
+// Resolvido a partir do arquivo compilado, entao funciona tanto em src quanto em dist
+const { version: APP_VERSION } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 const app = Fastify({ logger: true });
 
@@ -31,7 +37,8 @@ app.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body,
   }
 });
 
-app.get("/health", async () => ({ ok: true }));
+// Permite conferir no servidor qual release esta no ar sem acessar o container
+app.get("/health", async () => ({ ok: true, version: APP_VERSION }));
 
 await app.register(authRoutes);
 await app.register(familiesRoutes);
