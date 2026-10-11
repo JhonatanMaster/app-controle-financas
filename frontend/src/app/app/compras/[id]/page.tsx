@@ -7,8 +7,8 @@ import { comCacheDaFamilia, LISTA_GRUPOS, LISTA_ITENS_DO_ESTOQUE } from "@/lib/o
 import { useFamilyData } from "@/lib/use-family-data";
 import { executarOuEnfileirar, useOperacoesDaCompra } from "@/lib/sync";
 import { aplicarFila } from "@/lib/compra-offline";
-import type { PurchaseDetail, PurchaseItem, StockGroup, StockItem } from "@/lib/types";
-import { formatBRL, formatDate, formatQty } from "@/lib/format";
+import type { PurchaseDetail, PurchaseItem, PurchaseValueChange, StockGroup, StockItem } from "@/lib/types";
+import { formatBRL, formatDate, formatDateTime, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
 import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
@@ -24,6 +24,7 @@ export default function PurchaseDetailPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showFinalize, setShowFinalize] = useState(false);
+  const [editandoValor, setEditandoValor] = useState(false);
   const error = actionError ?? loadError;
   const setError = setActionError;
 
@@ -96,16 +97,33 @@ export default function PurchaseDetailPage() {
 
       {!isOpen ? (
         <Card className="mb-5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm text-muted">Valor da compra</p>
               <p className="text-2xl font-semibold text-ink">{formatBRL(purchase.total_value)}</p>
             </div>
-            {purchase.value_status === "pendente" ? <Badge tone="warn">valor pendente</Badge> : purchase.rateio_status === "fechado" ? <Badge tone="ok">rateio fechado</Badge> : null}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {purchase.value_status === "pendente" ? <Badge tone="warn">valor pendente</Badge> : purchase.rateio_status === "fechado" ? <Badge tone="ok">rateio fechado</Badge> : null}
+              {purchase.value_status === "definido" && familyId && !editandoValor ? (
+                <Button size="sm" variant="secondary" onClick={() => setEditandoValor(true)}>
+                  Editar valor
+                </Button>
+              ) : null}
+            </div>
           </div>
-          {purchase.value_status === "pendente" && familyId ? (
-            <SetValueForm familyId={familyId} purchaseId={purchase.id} onDone={reload} />
+          {familyId && (purchase.value_status === "pendente" || editandoValor) ? (
+            <SetValueForm
+              familyId={familyId}
+              purchaseId={purchase.id}
+              valorAtual={purchase.value_status === "definido" ? purchase.total_value : null}
+              onCancel={editandoValor ? () => setEditandoValor(false) : undefined}
+              onDone={() => {
+                setEditandoValor(false);
+                reload();
+              }}
+            />
           ) : null}
+          <HistoricoDoValor alteracoes={purchase.purchase_value_changes ?? []} />
         </Card>
       ) : null}
 
@@ -411,8 +429,25 @@ function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: s
   );
 }
 
-function SetValueForm({ familyId, purchaseId, onDone }: { familyId: string; purchaseId: string; onDone: () => void }) {
-  const [value, setValue] = useState("");
+/**
+ * Informa o valor de uma compra que ainda nao tem, ou corrige o de uma que ja tem. As duas coisas
+ * passam pela mesma rota, e o banco registra cada mudanca no historico do valor.
+ */
+function SetValueForm({
+  familyId,
+  purchaseId,
+  valorAtual,
+  onCancel,
+  onDone,
+}: {
+  familyId: string;
+  purchaseId: string;
+  valorAtual: number | null;
+  onCancel?: () => void;
+  onDone: () => void;
+}) {
+  const corrigindo = valorAtual !== null;
+  const [value, setValue] = useState(corrigindo ? String(valorAtual) : "");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -423,26 +458,84 @@ function SetValueForm({ familyId, purchaseId, onDone }: { familyId: string; purc
       setError("Informe um valor válido");
       return;
     }
+    if (corrigindo && v === valorAtual) {
+      setError("O valor é igual ao atual");
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
       await api(`/families/${familyId}/purchases/${purchaseId}/value`, { method: "PATCH", body: { totalValue: v } });
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha ao salvar valor");
+      // Diferente dos itens, o valor nao entra na fila offline, porque a correcao pode esbarrar no
+      // rateio e a pessoa precisa saber na hora se deu certo
+      setError(err instanceof ApiError ? err.message : "Sem sinal agora. Salvar o valor precisa de internet.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-4 flex items-end gap-2">
-      <div className="flex-1">
-        <Input label="Informar valor agora (R$)" name="value" type="number" inputMode="decimal" step="0.01" min={0} required value={value} onChange={(e) => setValue(e.target.value)} error={error ?? undefined} />
+    <form onSubmit={onSubmit} className="mt-4 flex flex-wrap items-end gap-2">
+      <div className="min-w-0 flex-1 basis-40">
+        <Input
+          label={corrigindo ? "Novo valor (R$)" : "Informar valor agora (R$)"}
+          name="value"
+          type="number"
+          inputMode="decimal"
+          step="0.01"
+          min={0}
+          required
+          autoFocus={corrigindo}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          error={error ?? undefined}
+        />
       </div>
-      <Button type="submit" loading={loading}>
-        Salvar
-      </Button>
+      <div className="flex gap-2">
+        {onCancel ? (
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Cancelar
+          </Button>
+        ) : null}
+        <Button type="submit" loading={loading}>
+          Salvar
+        </Button>
+      </div>
     </form>
+  );
+}
+
+/**
+ * Lista do mais recente para o mais antigo cada vez que o valor foi informado ou corrigido, com o
+ * valor anterior riscado, para ninguem precisar confiar de memoria no que estava antes.
+ */
+function HistoricoDoValor({ alteracoes }: { alteracoes: PurchaseValueChange[] }) {
+  if (alteracoes.length === 0) return null;
+
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Histórico do valor</p>
+      <ul className="flex flex-col gap-2.5">
+        {alteracoes.map((alteracao) => (
+          <li key={alteracao.id} className="text-sm">
+            {alteracao.old_value === null ? (
+              <p className="text-ink">
+                Informado <span className="font-semibold">{formatBRL(alteracao.new_value)}</span>
+              </p>
+            ) : (
+              <p className="text-ink">
+                <span className="text-muted line-through">{formatBRL(alteracao.old_value)}</span> corrigido para{" "}
+                <span className="font-semibold">{formatBRL(alteracao.new_value)}</span>
+              </p>
+            )}
+            <p className="text-xs text-muted">
+              {alteracao.changed_by_name ?? "Alguém da família"} · {formatDateTime(alteracao.changed_at)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

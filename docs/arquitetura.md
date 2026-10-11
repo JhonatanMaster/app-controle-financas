@@ -66,7 +66,11 @@ Três regras não podem ficar inconsistentes em hipótese alguma, então são tr
 - Finalizar uma compra incrementa o estoque **uma única vez**, na transição de `finalized_at`
   de nulo para preenchido. Editar o valor depois não soma de novo.
 - A soma do rateio nunca passa do valor total, e o status vira `fechado` sozinho quando a soma
-  iguala o total.
+  iguala o total. Vale nos dois sentidos: mexer no rateio e também corrigir o total, que é
+  recusado se ficar abaixo do já rateado.
+- Toda mudança no valor de uma compra fica registrada em `purchase_value_changes`, com o valor
+  antigo, o novo, quem mudou e quando. Quem grava é um trigger, então nenhuma rota precisa lembrar
+  de fazê-lo, e a tabela não aceita escrita pela API, o que impede apagar ou adulterar o rastro.
 
 No código da API essas regras dependeriam de todas as rotas lembrarem de aplicá-las. No banco,
 valem para qualquer escrita, inclusive uma correção manual pelo SQL Editor.
@@ -261,7 +265,8 @@ pacote sugere comprar 2; zerar sugere comprar 3.
 
 **Compra.** No mercado a pessoa ajusta a quantidade de cada item conforme coloca no carrinho, e
 pode levar mais ou menos que o sugerido. Ao finalizar, o estoque recebe o que foi comprado de
-fato. O valor pode ser informado na hora ou depois.
+fato. O valor pode ser informado na hora ou depois, e corrigido quando foi digitado errado. Cada
+correção aparece no histórico da compra com o valor anterior riscado, o autor e o horário.
 
 **Rateio.** A soma das contribuições precisa fechar exatamente com o total. Compra sem valor
 definido não pode ser rateada.

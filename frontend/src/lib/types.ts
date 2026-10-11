@@ -81,10 +81,22 @@ export type PurchaseSplit = {
   people: { name: string } | null;
 };
 
+/** Cada vez que o valor de uma compra foi informado ou corrigido */
+export type PurchaseValueChange = {
+  id: string;
+  /** Nulo quando foi o primeiro valor informado, e nao uma correcao */
+  old_value: number | null;
+  new_value: number | null;
+  changed_by_name: string | null;
+  changed_at: string;
+};
+
 export type PurchaseDetail = Omit<PurchaseSummary, "purchase_items"> & {
   family_id: string;
   purchase_items: PurchaseItem[];
   purchase_splits: PurchaseSplit[];
+  // Opcional porque uma compra guardada no aparelho antes desta versao chega sem o campo
+  purchase_value_changes?: PurchaseValueChange[];
 };
 
 export type FamilyMember = {

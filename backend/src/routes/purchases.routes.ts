@@ -88,10 +88,11 @@ export async function purchasesRoutes(app: FastifyInstance) {
     const { data, error } = await ctx.supabase
       .from("purchases")
       .select(
-        "*, purchase_items(id, stock_item_id, item_name, quantity, unit_price, group_id, stock_groups(id, name, sort_order), stock_items(unit, ideal_quantity, current_quantity, stock_groups(id, name, sort_order))), purchase_splits(id, person_id, amount, people(name))",
+        "*, purchase_items(id, stock_item_id, item_name, quantity, unit_price, group_id, stock_groups(id, name, sort_order), stock_items(unit, ideal_quantity, current_quantity, stock_groups(id, name, sort_order))), purchase_splits(id, person_id, amount, people(name)), purchase_value_changes(id, old_value, new_value, changed_by_name, changed_at)",
       )
       .eq("id", purchaseId)
       .order("item_name", { referencedTable: "purchase_items", ascending: true })
+      .order("changed_at", { referencedTable: "purchase_value_changes", ascending: false })
       .single();
 
     if (error) return replyWithDbError(request, reply, error);
