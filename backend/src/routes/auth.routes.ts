@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { supabaseAdmin, supabaseAuthClient, supabaseForUser } from "../lib/supabase.js";
@@ -57,6 +57,19 @@ const LIMITES = {
 
 function firstError(error: z.ZodError) {
   return error.issues[0]?.message ?? "Dados inválidos";
+}
+
+function normalizarEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+async function entrarComSenhaNova(request: FastifyRequest, email: string, password: string) {
+  const { data, error } = await supabaseAuthClient.auth.signInWithPassword({ email, password });
+  if (error || !data.session) {
+    request.log.error(error);
+    return null;
+  }
+  return data.session;
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -282,27 +295,33 @@ export async function authRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: firstError(parsed.error) });
     }
-    const { email, token, newPassword } = parsed.data;
+    const { token, newPassword } = parsed.data;
+    const email = normalizarEmail(parsed.data.email);
 
-    const { data, error } = await supabaseAuthClient.auth.verifyOtp({
-      type: "recovery",
-      token_hash: token,
-      email,
-    });
+    const { data, error } = await supabaseAuthClient.auth.verifyOtp({ type: "recovery", token_hash: token });
 
-    if (error || !data.session) {
+    if (error || !data.session || !data.user || normalizarEmail(data.user.email ?? "") !== email) {
       return reply.code(400).send({ error: "Link de recuperação inválido ou expirado" });
     }
 
-    const userSupabase = supabaseForUser(data.session.access_token);
-    const { error: updateError } = await userSupabase.auth.updateUser({ password: newPassword });
+    // O cliente com o token no cabecalho nao tem sessao propria, e o updateUser dele falhava sempre
+    // com Auth session missing, deixando a recuperacao sem funcionar. Com o link ja verificado, a
+    // senha e gravada pela API administrativa
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(data.user.id, { password: newPassword });
 
     if (updateError) {
       request.log.error(updateError);
       return reply.code(500).send({ error: "Não foi possível definir a nova senha" });
     }
 
-    setSessionCookies(request, reply, data.session);
+    // Trocar a senha encerra todas as sessoes da conta, inclusive a que o link acabou de abrir,
+    // entao a sessao que vale e a de um login novo com a senha recem criada
+    const sessao = await entrarComSenhaNova(request, email, newPassword);
+    if (!sessao) {
+      return reply.send({ ok: true, entrar: true });
+    }
+
+    setSessionCookies(request, reply, sessao);
     return reply.send({ ok: true });
   });
 }
