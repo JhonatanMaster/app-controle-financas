@@ -15,6 +15,9 @@ const createPurchaseSchema = z.object({
 });
 
 const addItemSchema = z.object({
+  // Gerado no aparelho quando a adicao pode ir para a fila offline. Reenviar com o mesmo id
+  // cai no 409 da chave primaria, em vez de criar o item duas vezes
+  id: z.string().uuid().optional(),
   stockItemId: z.string().uuid().optional(),
   itemName: z.string().min(1).optional(),
   quantity: z.number().positive().default(1),
@@ -181,6 +184,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
     const { data, error } = await ctx.supabase
       .from("purchase_items")
       .insert({
+        id: body.id,
         purchase_id: purchaseId,
         stock_item_id: body.stockItemId ?? null,
         item_name: itemName,

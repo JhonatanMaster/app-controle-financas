@@ -17,6 +17,10 @@ services:
     environment:
       FRONTEND_ORIGIN: https://${FRONTEND_HOST}
       APP_BASE_URL: https://${FRONTEND_HOST}
+      # O Traefik chega ao backend por rede interna do Docker, sempre de endereco privado, e quem vem
+      # da internet chega com endereco publico. Confiar so nos privados le o IP real de cada cliente
+      # no X-Forwarded-For sem deixar ninguem de fora forjar o proprio
+      TRUST_PROXY: ${TRUST_PROXY:-uniquelocal}
     # Quem publica e o Traefik, pela rede interna, entao nao ha porta no host
     ports: !reset []
     networks:
