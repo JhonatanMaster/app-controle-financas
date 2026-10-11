@@ -32,17 +32,6 @@ app.setErrorHandler((error: FastifyError, request, reply) => {
   });
 });
 
-// Precisa vir antes de qualquer register. Cada rota guarda o tratador vigente no momento em que e
-// criada, entao registrado depois ele nao valia para nenhuma, e a mensagem crua de qualquer excecao
-// chegava ao cliente no formato padrao do Fastify
-app.setErrorHandler((error: FastifyError, request, reply) => {
-  request.log.error(error);
-  const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
-  reply.code(statusCode).send({
-    error: statusCode === 500 ? "Erro interno" : error.message,
-  });
-});
-
 await app.register(cors, {
   origin: env.FRONTEND_ORIGIN,
   credentials: true,
