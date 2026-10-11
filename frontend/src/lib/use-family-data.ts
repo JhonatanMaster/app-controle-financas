@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError } from "./api";
-import { comCache } from "./offline-cache";
+import { ApiError } from "./api";
+import { comCacheDaFamilia } from "./offline-cache";
 import { EVENTO_SINCRONIZADO } from "./sync";
 import { useSession } from "./session";
 
@@ -25,7 +25,7 @@ export function useFamilyData<T>(path: string, pick: (raw: unknown) => T) {
 
     (async () => {
       try {
-        const { valor, doCache } = await comCache(`${familyId}:${path}`, () => api(`/families/${familyId}${path}`));
+        const { valor, doCache } = await comCacheDaFamilia(familyId, path);
         if (ignore) return;
         setData(pick(valor));
         setOrigemCache(doCache);

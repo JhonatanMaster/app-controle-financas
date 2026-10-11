@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useSession } from "@/lib/session";
 import { limparDadosOffline } from "@/lib/offline-db";
+import { preaquecerListasDaCompra } from "@/lib/offline-cache";
 import { useEstadoSincronizacao } from "@/lib/sync";
 import { BannerSincronizacao } from "./sincronizacao";
 import { Spinner } from "./ui";
@@ -25,6 +26,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !me) router.replace("/login");
   }, [loading, me, router]);
+
+  const familyId = family?.family_id;
+
+  // O shell monta uma vez por abertura do app, entao e o ponto em que a rede costuma estar boa,
+  // em casa, antes de a pessoa ir ao mercado. Ao voltar a conexao, aproveita para atualizar
+  useEffect(() => {
+    if (!familyId) return;
+    preaquecerListasDaCompra(familyId);
+    const aoVoltarARede = () => preaquecerListasDaCompra(familyId);
+    window.addEventListener("online", aoVoltarARede);
+    return () => window.removeEventListener("online", aoVoltarARede);
+  }, [familyId]);
 
   // Sair apaga o que estava na fila, entao so segue depois de confirmar que a pessoa sabe disso
   async function sair() {

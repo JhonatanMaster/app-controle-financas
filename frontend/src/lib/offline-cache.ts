@@ -1,4 +1,4 @@
-import { ApiError } from "./api";
+import { api, ApiError } from "./api";
 import { gravarCache, lerCache } from "./offline-db";
 
 /**
@@ -22,5 +22,32 @@ export async function comCache<T>(chave: string, busca: () => Promise<T>): Promi
     const salvo = await lerCache<T>(chave).catch(() => null);
     if (salvo === null) throw err;
     return { valor: salvo, doCache: true };
+  }
+}
+
+/**
+ * Busca um recurso da familia com cache. A chave sai sempre daqui porque telas diferentes leem o
+ * mesmo dado, como a lista de itens que serve ao estoque e ao formulario da compra, e so dividem
+ * o que foi guardado se a chave for identica.
+ *
+ * @param caminho Trecho da rota depois de /families/:familyId, por exemplo /stock-items.
+ */
+export function comCacheDaFamilia<T>(familyId: string, caminho: string) {
+  return comCache<T>(`${familyId}:${caminho}`, () => api<T>(`/families/${familyId}${caminho}`));
+}
+
+/** Listas que o formulario de adicionar item precisa para funcionar sem sinal */
+export const LISTA_ITENS_DO_ESTOQUE = "/stock-items";
+export const LISTA_GRUPOS = "/stock-groups";
+
+/**
+ * Guarda no aparelho as listas que a compra usa sem sinal. Sem isto elas so eram guardadas ao
+ * abrir a tela de estoque ou o proprio formulario com rede, e o caso comum e o contrario, montar
+ * o carrinho ja no mercado, onde o sinal falha. Sem rede a busca so le o que ja havia, entao
+ * chamar a qualquer momento e seguro.
+ */
+export function preaquecerListasDaCompra(familyId: string): void {
+  for (const caminho of [LISTA_ITENS_DO_ESTOQUE, LISTA_GRUPOS]) {
+    comCacheDaFamilia(familyId, caminho).catch(() => undefined);
   }
 }

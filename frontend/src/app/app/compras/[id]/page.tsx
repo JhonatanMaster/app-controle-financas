@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { comCache } from "@/lib/offline-cache";
+import { comCacheDaFamilia, LISTA_GRUPOS, LISTA_ITENS_DO_ESTOQUE } from "@/lib/offline-cache";
 import { useFamilyData } from "@/lib/use-family-data";
 import { executarOuEnfileirar, useOperacoesDaCompra } from "@/lib/sync";
 import { aplicarFila } from "@/lib/compra-offline";
@@ -225,13 +225,15 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
   const [qty, setQty] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Sem rede e sem nada guardado no aparelho, a lista nao tem de onde vir
+  const [semListaDoEstoque, setSemListaDoEstoque] = useState(false);
 
   useEffect(() => {
-    // Mesma chave usada pelas telas de estoque, para a lista ficar disponivel sem sinal
-    comCache(`${familyId}:/stock-items`, () => api<{ items: StockItem[] }>(`/families/${familyId}/stock-items`))
+    // O shell ja guarda estas listas ao abrir o app com rede, aqui so le ou atualiza
+    comCacheDaFamilia<{ items: StockItem[] }>(familyId, LISTA_ITENS_DO_ESTOQUE)
       .then(({ valor }) => setStock(valor.items))
-      .catch(() => undefined);
-    comCache(`${familyId}:/stock-groups`, () => api<{ groups: StockGroup[] }>(`/families/${familyId}/stock-groups`))
+      .catch(() => setSemListaDoEstoque(true));
+    comCacheDaFamilia<{ groups: StockGroup[] }>(familyId, LISTA_GRUPOS)
       .then(({ valor }) => setGroups(valor.groups))
       .catch(() => undefined);
   }, [familyId]);
@@ -309,6 +311,13 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
             </button>
           ))}
         </div>
+        {mode === "estoque" && semListaDoEstoque ? (
+          <Alert tone="info">
+            A lista do estoque ainda não foi guardada neste aparelho, e agora está sem sinal. Ela fica
+            disponível depois de abrir o app uma vez com internet. Enquanto isso, adicione pelo nome em
+            Item avulso.
+          </Alert>
+        ) : null}
         <div className="grid grid-cols-[1fr_88px] gap-3">
           {mode === "estoque" ? (
             <Select label="Item" name="stockItemId" required value={stockItemId} onChange={(e) => setStockItemId(e.target.value)}>
