@@ -15,6 +15,17 @@ const { version: APP_VERSION } = JSON.parse(
 
 const app = Fastify({ logger: true });
 
+// Precisa vir antes de qualquer register. Cada rota guarda o tratador vigente no momento em que e
+// criada, entao registrado depois ele nao valia para nenhuma, e a mensagem crua de qualquer excecao
+// chegava ao cliente no formato padrao do Fastify
+app.setErrorHandler((error: FastifyError, request, reply) => {
+  request.log.error(error);
+  const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+  reply.code(statusCode).send({
+    error: statusCode === 500 ? "Erro interno" : error.message,
+  });
+});
+
 await app.register(cors, {
   origin: env.FRONTEND_ORIGIN,
   credentials: true,
@@ -32,8 +43,9 @@ app.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body,
   }
   try {
     done(null, JSON.parse(body));
-  } catch (err) {
-    done(err as Error, undefined);
+  } catch {
+    // Sem statusCode o tratador responderia 500, e o problema e do corpo enviado
+    done(Object.assign(new Error("JSON inválido no corpo da requisição"), { statusCode: 400 }), undefined);
   }
 });
 
@@ -44,14 +56,6 @@ await app.register(authRoutes);
 await app.register(familiesRoutes);
 await app.register(stockRoutes);
 await app.register(purchasesRoutes);
-
-app.setErrorHandler((error: FastifyError, request, reply) => {
-  request.log.error(error);
-  const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
-  reply.code(statusCode).send({
-    error: statusCode === 500 ? "Erro interno" : error.message,
-  });
-});
 
 try {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });

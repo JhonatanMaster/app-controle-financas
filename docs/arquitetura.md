@@ -113,6 +113,11 @@ código conhecido para uma resposta HTTP com texto próprio e registra o restant
 apenas "Erro interno". A exceção são os erros levantados pelos triggers do projeto, que já são
 escritos para o usuário final.
 
+Para exceções que escapam da tradução, o tratador global faz o mesmo papel, e a posição dele no
+`server.ts` importa: cada rota guarda o tratador vigente no momento em que é criada. Registrado
+depois das rotas, como chegou a estar, ele não valia para nenhuma, e a mensagem crua de qualquer
+exceção ia ao cliente no formato padrão do Fastify. Por isso ele é a primeira coisa configurada.
+
 ### 7. Configuração validada na inicialização
 
 Variáveis de ambiente passam por um schema na subida do processo. Uma URL pública sem protocolo,
