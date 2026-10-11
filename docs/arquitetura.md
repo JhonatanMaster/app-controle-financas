@@ -218,6 +218,24 @@ container. Uma variável exportada no shell não mudaria o que o backend recebe,
 para aceitar as duas origens não resolve: o Compose a anula quando ela não existe no ambiente, e o
 valor que vinha do `env_file` se perde.
 
+### 12. Limite de tentativas por IP, lido através do proxy
+
+Login, cadastro, recuperação e redefinição de senha, aceite de convite e renovação de sessão são
+alcançáveis sem conta, então são as rotas que um atacante usa para adivinhar senha ou disparar
+e-mail em massa pelo Resend. Elas têm limite por IP; as demais exigem sessão e ficam livres.
+
+O ponto delicado é descobrir o IP. Atrás do Traefik, toda conexão chega do endereço do próprio
+proxy, e sem configuração o limite valeria para todos os usuários juntos, de modo que um único
+atacante bloquearia o login de todo mundo. Confiar cegamente no `X-Forwarded-For` erra para o outro
+lado, porque o cliente escreve o que quiser nesse cabeçalho e escapa do limite.
+
+A saída é confiar só em endereços de proxy. O Traefik fala com o backend pela rede interna do Docker,
+sempre de endereço privado, e quem vem da internet chega com endereço público. Com `TRUST_PROXY`
+em `uniquelocal`, o backend aceita o cabeçalho apenas quando a conexão vem de rede privada e pega o
+último endereço público da cadeia, que é o que o Traefik anotou e o cliente não controla. A
+contagem de saltos, que seria o atalho óbvio, não serve: esta versão do Fastify a recusa em
+silêncio, justamente por não validar quem está do outro lado da conexão.
+
 ## Modelo de dados
 
 | Entidade | Papel |

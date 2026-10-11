@@ -40,12 +40,27 @@ const resetPasswordSchema = z.object({
   newPassword: passwordSchema,
 });
 
+/**
+ * Limites por IP nas rotas que um atacante usa sem precisar de conta. Login e recuperacao de senha
+ * sao os alvos classicos, um para adivinhar senha e o outro para disparar e-mail em massa pelo
+ * Resend, gastando a cota e a reputacao do dominio. Os valores folgam para quem erra a senha
+ * algumas vezes de verdade.
+ */
+const LIMITES = {
+  login: { max: 10, timeWindow: "5 minutes" },
+  cadastro: { max: 5, timeWindow: "1 hour" },
+  recuperacao: { max: 5, timeWindow: "1 hour" },
+  redefinicao: { max: 10, timeWindow: "15 minutes" },
+  convite: { max: 10, timeWindow: "15 minutes" },
+  renovacao: { max: 30, timeWindow: "1 minute" },
+};
+
 function firstError(error: z.ZodError) {
   return error.issues[0]?.message ?? "Dados inválidos";
 }
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post("/auth/signup-family", async (request, reply) => {
+  app.post("/auth/signup-family", { config: { rateLimit: LIMITES.cadastro } }, async (request, reply) => {
     const parsed = signupSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: firstError(parsed.error) });
@@ -104,7 +119,7 @@ export async function authRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post("/auth/login", async (request, reply) => {
+  app.post("/auth/login", { config: { rateLimit: LIMITES.login } }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Dados inválidos" });
@@ -153,7 +168,7 @@ export async function authRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post("/auth/refresh", async (request, reply) => {
+  app.post("/auth/refresh", { config: { rateLimit: LIMITES.renovacao } }, async (request, reply) => {
     const refreshToken = getRefreshToken(request);
     if (!refreshToken) {
       return reply.code(401).send({ error: "Sem sessão para renovar" });
@@ -172,7 +187,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  app.post("/auth/accept-invite", async (request, reply) => {
+  app.post("/auth/accept-invite", { config: { rateLimit: LIMITES.convite } }, async (request, reply) => {
     const parsed = acceptInviteSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: firstError(parsed.error) });
@@ -242,7 +257,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ ok: true, familyId: invite.family_id });
   });
 
-  app.post("/auth/forgot-password", async (request, reply) => {
+  app.post("/auth/forgot-password", { config: { rateLimit: LIMITES.recuperacao } }, async (request, reply) => {
     const parsed = forgotPasswordSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Dados inválidos" });
@@ -262,7 +277,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  app.post("/auth/reset-password", async (request, reply) => {
+  app.post("/auth/reset-password", { config: { rateLimit: LIMITES.redefinicao } }, async (request, reply) => {
     const parsed = resetPasswordSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: firstError(parsed.error) });

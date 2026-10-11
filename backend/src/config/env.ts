@@ -49,6 +49,12 @@ const optionalString = z
 const envSchema = z
   .object({
     PORT: z.coerce.number().default(4000),
+    // Enderecos dos proxies em quem confiar para ler o IP real no X-Forwarded-For, no formato do
+    // proxy-addr, como "uniquelocal" ou "10.0.1.0/24". Vazio quando nao ha proxy na frente.
+    // Sem isto atras do Traefik, todos os usuarios dividiriam o IP do proxy e um unico atacante
+    // esgotaria o limite de tentativas de todo mundo. Confiar em qualquer endereco, ao contrario,
+    // deixaria o cliente forjar o proprio IP e escapar do limite
+    TRUST_PROXY: optionalString,
     FRONTEND_ORIGIN: publicUrl("FRONTEND_ORIGIN"),
     COOKIE_SECRET: z.string().min(16),
     SUPABASE_URL: z.string().url(),

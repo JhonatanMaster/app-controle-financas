@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import { env } from "./config/env.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { familiesRoutes } from "./routes/families.routes.js";
@@ -13,7 +14,23 @@ const { version: APP_VERSION } = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as { version: string };
 
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: true,
+  // Por endereco e nao por contagem de saltos, que esta versao do Fastify recusa em silencio por nao
+  // conseguir validar quem esta do outro lado da conexao
+  trustProxy: env.TRUST_PROXY ?? false,
+});
+
+// Precisa vir antes de qualquer register. Cada rota guarda o tratador vigente no momento em que e
+// criada, entao registrado depois ele nao valia para nenhuma, e a mensagem crua de qualquer excecao
+// chegava ao cliente no formato padrao do Fastify
+app.setErrorHandler((error: FastifyError, request, reply) => {
+  request.log.error(error);
+  const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+  reply.code(statusCode).send({
+    error: statusCode === 500 ? "Erro interno" : error.message,
+  });
+});
 
 // Precisa vir antes de qualquer register. Cada rota guarda o tratador vigente no momento em que e
 // criada, entao registrado depois ele nao valia para nenhuma, e a mensagem crua de qualquer excecao
@@ -33,6 +50,17 @@ await app.register(cors, {
 
 await app.register(cookie, {
   secret: env.COOKIE_SECRET,
+});
+
+// Desligado por padrao e ligado rota a rota, so onde ha algo a proteger. O objeto devolvido passa
+// pelo setErrorHandler acima, que precisa do statusCode e da mensagem para responder como as demais
+// rotas, no formato que o frontend le
+await app.register(rateLimit, {
+  global: false,
+  errorResponseBuilder: () => ({
+    statusCode: 429,
+    message: "Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente de novo.",
+  }),
 });
 
 // Aceita POST com content type JSON e corpo vazio (ex. logout, finalize sem valor)
