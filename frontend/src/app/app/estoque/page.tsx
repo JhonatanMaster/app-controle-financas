@@ -9,8 +9,10 @@ import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
 import { Alert, Badge, Button, Card, Empty, Input, PageTitle, Select, Spinner } from "@/components/ui";
 
 export default function EstoquePage() {
-  const { data, loading, error, reload, familyId } = useFamilyData("/stock-items", (raw) => (raw as { items: StockItem[] }).items);
+  const { data, loading, error, reload, atualizarLocal, familyId } = useFamilyData("/stock-items", (raw) => (raw as { items: StockItem[] }).items);
   const groups = useFamilyData("/stock-groups", (raw) => (raw as { groups: StockGroup[] }).groups);
+  // O formulario de item novo abre no topo, e o de edicao no lugar do proprio item, onde a pessoa
+  // tocou, em vez de aparecer fora da tela quando ela esta no fim da lista
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<StockItem | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -29,11 +31,14 @@ export default function EstoquePage() {
   async function consume(item: StockItem) {
     if (!familyId) return;
     setActionError(null);
+    // A quantidade cai na hora. Se o servidor recusar, o reload do final traz o valor real de volta
+    atualizarLocal((itens) => itens.map((i) => (i.id === item.id ? { ...i, current_quantity: i.current_quantity - 1 } : i)));
     try {
       await api(`/families/${familyId}/stock-items/${item.id}/consume`, { method: "POST", body: { quantity: 1 } });
-      await reload();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Falha ao registrar consumo");
+    } finally {
+      reload();
     }
   }
 
@@ -69,22 +74,18 @@ export default function EstoquePage() {
 
       {actionError ? <div className="mb-4"><Alert>{actionError}</Alert></div> : null}
 
-      {showForm ? (
+      {showForm && !editing ? (
         <div className="mb-5">
           <StockItemForm
             familyId={familyId!}
-            item={editing}
+            item={null}
             groups={groups.data ?? []}
             onGroupCreated={groups.reload}
             onDone={() => {
               setShowForm(false);
-              setEditing(null);
               reload();
             }}
-            onCancel={() => {
-              setShowForm(false);
-              setEditing(null);
-            }}
+            onCancel={() => setShowForm(false)}
           />
         </div>
       ) : null}
@@ -108,6 +109,22 @@ export default function EstoquePage() {
               ) : null}
               <div className="flex flex-col gap-3">
                 {section.items.map((item) => {
+                  if (editing?.id === item.id) {
+                    return (
+                      <StockItemForm
+                        key={item.id}
+                        familyId={familyId!}
+                        item={item}
+                        groups={groups.data ?? []}
+                        onGroupCreated={groups.reload}
+                        onDone={() => {
+                          setEditing(null);
+                          reload();
+                        }}
+                        onCancel={() => setEditing(null)}
+                      />
+                    );
+                  }
                   const low = item.current_quantity <= item.min_quantity;
                   return (
                     <Card key={item.id} className="flex items-center gap-3">
@@ -123,8 +140,8 @@ export default function EstoquePage() {
                           <button
                             className="text-brand hover:underline"
                             onClick={() => {
+                              setShowForm(false);
                               setEditing(item);
-                              setShowForm(true);
                             }}
                           >
                             Editar
