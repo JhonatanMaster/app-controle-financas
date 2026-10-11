@@ -265,6 +265,20 @@ session missing", que é o motivo de a recuperação de senha ter ficado sem fun
 Gravar a senha também encerra todas as sessões da conta, inclusive a aberta pelo link, então o
 backend entra de novo com a senha recém criada e é essa sessão que vai para os cookies.
 
+### 14. Bloqueio de login por conta
+
+O limite por IP não protege uma conta de quem tenta senhas a partir de vários endereços. Depois de
+cinco senhas erradas para o mesmo e-mail, o login dele fica bloqueado por cinco minutos, inclusive
+para a senha certa, senão o bloqueio não serviria para nada. A partir do terceiro erro a resposta
+avisa quantas tentativas restam, e um acerto zera a contagem. Redefinir a senha pelo link também
+libera o bloqueio, porque prova que a pessoa é dona do e-mail.
+
+O efeito colateral conhecido é que alguém pode bloquear a conta de outra pessoa errando a senha de
+propósito. Cinco minutos é curto o bastante para isso incomodar pouco, e o link de redefinição
+continua funcionando durante o bloqueio. O estado fica na memória do processo: reiniciar o backend
+libera os bloqueios, o que é aceitável com uma única instância e evita consultar o banco a cada
+tentativa de login.
+
 ## Modelo de dados
 
 | Entidade | Papel |

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuthError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { env } from "../config/env.js";
@@ -12,6 +12,7 @@ import {
 } from "../lib/auth-context.js";
 import { sendAccountExistsEmail, sendPasswordRecoveryEmail, sendSignupConfirmationEmail } from "../lib/resend.js";
 import { passwordSchema } from "../lib/password.js";
+import { BLOQUEIO_MS, registrarFalha, registrarSucesso, tempoDeBloqueio, tentativasRestantes } from "../lib/bloqueio-login.js";
 
 // A senha nao vem no cadastro. Ela e criada depois, na tela aberta pelo link do email, para que so
 // quem controla a caixa de entrada consiga definir a senha da conta
@@ -51,11 +52,12 @@ const resetPasswordSchema = z.object({
 /**
  * Limites por IP nas rotas que um atacante usa sem precisar de conta. Login e recuperacao de senha
  * sao os alvos classicos, um para adivinhar senha e o outro para disparar email em massa pelo
- * Resend, gastando a cota e a reputacao do dominio. Os valores folgam para quem erra a senha
- * algumas vezes de verdade.
+ * Resend, gastando a cota e a reputacao do dominio. No login o limite por IP so impede um endereco
+ * de varrer muitas contas, e quem protege cada conta e o bloqueio por senha errada, em
+ * lib/bloqueio-login.
  */
 const LIMITES = {
-  login: { max: 10, timeWindow: "5 minutes" },
+  login: { max: 20, timeWindow: "5 minutes" },
   cadastro: { max: 5, timeWindow: "1 hour" },
   conclusao: { max: 10, timeWindow: "15 minutes" },
   recuperacao: { max: 5, timeWindow: "1 hour" },
@@ -82,6 +84,14 @@ function linkDeConclusao(token: string, email: string) {
 
 function linkDeRedefinicao(token: string, email: string) {
   return `${env.APP_BASE_URL}/redefinir-senha?token=${token}&email=${encodeURIComponent(email)}`;
+}
+
+function responderBloqueio(reply: FastifyReply, restanteMs: number) {
+  const minutos = Math.ceil(restanteMs / 60000);
+  reply.header("Retry-After", String(Math.ceil(restanteMs / 1000)));
+  return reply.code(429).send({
+    error: `Muitas tentativas de login com este e-mail. Tente de novo em ${minutos} ${minutos === 1 ? "minuto" : "minutos"}.`,
+  });
 }
 
 type MetadadosDoCadastro = { display_name?: string; family_name?: string };
@@ -238,13 +248,32 @@ export async function authRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Dados inválidos" });
     }
+    const email = normalizarEmail(parsed.data.email);
 
-    const { data, error } = await supabaseAuthClient.auth.signInWithPassword(parsed.data);
+    // Conferido antes de falar com o Supabase. Bloqueada, a conta recusa ate a senha certa
+    const bloqueio = tempoDeBloqueio(email);
+    if (bloqueio > 0) return responderBloqueio(reply, bloqueio);
+
+    const { data, error } = await supabaseAuthClient.auth.signInWithPassword({ email, password: parsed.data.password });
 
     if (error || !data.session) {
-      return reply.code(401).send({ error: "E-mail ou senha inválidos" });
+      // So credencial recusada conta como tentativa. Uma falha do proprio Supabase nao pode
+      // bloquear quem nao errou nada
+      if (error && error.status === 400) {
+        if (registrarFalha(email) > 0) return responderBloqueio(reply, BLOQUEIO_MS);
+        const restantes = tentativasRestantes(email);
+        return reply.code(401).send({
+          error:
+            restantes <= 2
+              ? `E-mail ou senha inválidos. ${restantes === 1 ? "Mais 1 tentativa errada" : `Mais ${restantes} tentativas erradas`} e o login fica bloqueado por 5 minutos.`
+              : "E-mail ou senha inválidos",
+        });
+      }
+      request.log.error(error);
+      return reply.code(502).send({ error: "Não foi possível entrar agora. Tente novamente em instantes." });
     }
 
+    registrarSucesso(email);
     setSessionCookies(request, reply, data.session);
     return reply.send({ user: { id: data.user.id, email: data.user.email } });
   });
@@ -428,6 +457,9 @@ export async function authRoutes(app: FastifyInstance) {
       request.log.error(updateError);
       return reply.code(500).send({ error: "Não foi possível definir a nova senha" });
     }
+
+    // Quem provou ser dona do email com o link sai de um eventual bloqueio por senha errada
+    registrarSucesso(email);
 
     // Trocar a senha encerra todas as sessoes da conta, inclusive a que o link acabou de abrir,
     // entao a sessao que vale e a de um login novo com a senha recem criada
