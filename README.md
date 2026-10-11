@@ -74,8 +74,10 @@ cd app-controle-financas
 ./compose.sh up -d --build
 ```
 
-Abra [http://localhost:3000](http://localhost:3000) e crie uma conta. Você entra como titular de
-uma família nova, que já nasce com os grupos de mercado padrão.
+Abra [http://localhost:3000](http://localhost:3000) e crie uma conta. O cadastro manda um link para
+criar a senha, que no ambiente local aparece no log do backend (veja [E-mails em ambiente
+local](#e-mails-em-ambiente-local)). Ao concluir, você entra como titular de uma família nova, que
+já nasce com os grupos de mercado padrão.
 
 A primeira subida leva alguns minutos, porque baixa as imagens e compila a aplicação. As seguintes
 são rápidas. Para acompanhar até tudo ficar pronto:
@@ -120,8 +122,8 @@ a API REST só sobe com o schema pronto.
 
 ### E-mails em ambiente local
 
-Nenhum e-mail sai de verdade. Convites e links de redefinição de senha são impressos no log do
-backend, prontos para abrir no navegador:
+Nenhum e-mail sai de verdade. Links de cadastro, convites e links de redefinição de senha são
+impressos no log do backend, prontos para abrir no navegador:
 
 ```bash
 docker compose logs -f backend

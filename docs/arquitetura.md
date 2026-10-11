@@ -54,9 +54,11 @@ Em vez disso, cada requisição monta um client do Supabase com o JWT de quem es
 políticas de RLS continuam valendo e funcionam como segunda barreira: mesmo uma rota com bug de
 autorização não enxerga dados de outra família.
 
-A chave de serviço fica restrita a três operações administrativas de autenticação em que ainda não
-existe sessão: criar a conta no cadastro, criar a conta no aceite de convite e gerar o link de
-recuperação de senha. Nunca é usada para dados de negócio.
+A chave de serviço fica restrita à autenticação, nos momentos em que ainda não existe sessão:
+criar a conta no cadastro e no aceite de convite, gerar os links de cadastro e de recuperação, e
+gravar a senha depois que o link enviado por e-mail foi verificado. A única leitura de dado de
+negócio feita com ela é a do próprio convite, pelo id que chegou no e-mail, porque quem aceita
+ainda não tem sessão para ler pelo RLS.
 
 ### 4. Invariantes de estoque e rateio moram no banco
 
@@ -239,6 +241,29 @@ em `uniquelocal`, o backend aceita o cabeçalho apenas quando a conexão vem de 
 último endereço público da cadeia, que é o que o Traefik anotou e o cliente não controla. A
 contagem de saltos, que seria o atalho óbvio, não serve: esta versão do Fastify a recusa em
 silêncio, justamente por não validar quem está do outro lado da conexão.
+
+### 13. Cadastro confirmado por e-mail, e senha criada só depois
+
+Sem confirmação, qualquer um cadastrava o e-mail de outra pessoa, ocupando o endereço e travando
+convites futuros para ele. A primeira ideia, pedir a senha no cadastro e mandar um link para
+confirmar, deixa uma brecha pior. Quem cadastra o e-mail alheio escolhe a senha, o link chega na
+caixa da vítima, e ela, achando que é dela, ativa uma conta cuja senha o atacante conhece.
+
+Por isso o cadastro pede só nome, família e e-mail, e cria a conta sem senha e sem confirmação, o
+que já impede o login. O link enviado pelo Resend leva a uma tela onde a pessoa cria a senha. Só
+então a família é criada e a sessão começa. Quem define a senha é quem controla a caixa de entrada,
+e cada link novo invalida o anterior e só pode ser usado uma vez. O aceite de convite segue o mesmo
+princípio desde o início, porque o id do convite só existe no e-mail.
+
+Cadastrar um e-mail que já tem conta devolve a mesma resposta de um cadastro novo, para o cadastro
+não servir para descobrir quais e-mails existem. A dona da conta recebe na própria caixa um aviso
+com o caminho para redefinir a senha.
+
+A senha é gravada pela API administrativa, depois de o link ser verificado. O cliente do usuário
+montado só com o token no cabeçalho não tem sessão própria, e o `updateUser` dele falha com "Auth
+session missing", que é o motivo de a recuperação de senha ter ficado sem funcionar até aqui.
+Gravar a senha também encerra todas as sessões da conta, inclusive a aberta pelo link, então o
+backend entra de novo com a senha recém criada e é essa sessão que vai para os cookies.
 
 ## Modelo de dados
 

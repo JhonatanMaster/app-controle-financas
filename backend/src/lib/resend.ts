@@ -46,6 +46,43 @@ export function sendFamilyInviteEmail(params: { to: string; familyName: string; 
   });
 }
 
+export function sendSignupConfirmationEmail(params: { to: string; displayName: string; familyName: string; confirmUrl: string }) {
+  const { to, displayName, familyName, confirmUrl } = params;
+
+  return send({
+    to,
+    link: confirmUrl,
+    subject: "Conclua seu cadastro no Controle Finanças",
+    html: layout({
+      title: displayName ? `Olá, ${escapeHtml(displayName)}` : "Olá",
+      body: `Falta pouco para ${familyName ? `criar a família <strong>${escapeHtml(familyName)}</strong>` : "concluir seu cadastro"}. Confirme que este e-mail é seu e escolha a senha de acesso. O link expira em pouco tempo e só pode ser usado uma vez.`,
+      action: { label: "Criar minha senha", url: confirmUrl },
+      footer: "Se você não pediu este cadastro, ignore este e-mail. Nenhuma conta é criada sem a confirmação.",
+    }),
+  });
+}
+
+/**
+ * Enviado quando alguem tenta cadastrar um email que ja tem conta. A resposta da API e a mesma de
+ * um cadastro novo, para nao revelar quais emails existem, e quem tem a conta fica sabendo pela
+ * propria caixa de entrada, ja com o caminho para redefinir a senha.
+ */
+export function sendAccountExistsEmail(params: { to: string; recoveryUrl: string }) {
+  const { to, recoveryUrl } = params;
+
+  return send({
+    to,
+    link: recoveryUrl,
+    subject: "Você já tem conta no Controle Finanças",
+    html: layout({
+      title: "Você já tem uma conta",
+      body: "Recebemos um pedido de cadastro com este e-mail, que já tem conta. Para entrar, use sua senha. Se não lembra dela, escolha uma nova pelo link abaixo, que expira em pouco tempo.",
+      action: { label: "Escolher nova senha", url: recoveryUrl },
+      footer: "Se não foi você que tentou se cadastrar, ignore este e-mail. Sua senha atual continua valendo.",
+    }),
+  });
+}
+
 export function sendPasswordRecoveryEmail(params: { to: string; recoveryUrl: string }) {
   const { to, recoveryUrl } = params;
 
@@ -63,7 +100,7 @@ export function sendPasswordRecoveryEmail(params: { to: string; recoveryUrl: str
 }
 
 /**
- * Tabela com estilos inline porque boa parte dos clientes de e-mail, Outlook e Gmail
+ * Tabela com estilos inline porque boa parte dos clientes de email, Outlook e Gmail
  * incluidos, ignora folhas de estilo e layout com flexbox.
  */
 function layout(params: { title: string; body: string; action: { label: string; url: string }; footer: string }) {
