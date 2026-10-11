@@ -98,7 +98,8 @@ export function PageTitle({ title, subtitle, action }: { title: string; subtitle
         <h1 className="text-2xl font-semibold text-ink">{title}</h1>
         {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
       </div>
-      {action}
+      {/* Sem isto um subtitulo longo espreme a acao, e no celular o botao quebrava em duas linhas */}
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }

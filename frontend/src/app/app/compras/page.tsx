@@ -216,7 +216,7 @@ export default function ComprasPage() {
             {historyPeriods.map((period) => (
               <div key={period.key}>
                 <div className="mb-2 flex items-baseline justify-between gap-3">
-                  <h3 className="text-sm font-semibold capitalize text-ink">{period.label}</h3>
+                  <h3 className="text-sm font-semibold text-ink">{period.label}</h3>
                   <div className="text-right">
                     <span className="text-sm font-semibold text-ink tabular-nums">{formatBRL(period.total)}</span>
                     {period.pending > 0 ? (
