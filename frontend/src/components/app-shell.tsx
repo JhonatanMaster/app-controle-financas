@@ -4,6 +4,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useSession } from "@/lib/session";
+import { limparDadosOffline } from "@/lib/offline-db";
+import { useEstadoSincronizacao } from "@/lib/sync";
+import { BannerSincronizacao } from "./sincronizacao";
 import { Spinner } from "./ui";
 
 const NAV = [
@@ -17,10 +20,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { me, loading, family, logout } = useSession();
   const router = useRouter();
   const pathname = usePathname();
+  const { pendentes } = useEstadoSincronizacao();
 
   useEffect(() => {
     if (!loading && !me) router.replace("/login");
   }, [loading, me, router]);
+
+  // Sair apaga o que estava na fila, entao so segue depois de confirmar que a pessoa sabe disso
+  async function sair() {
+    if (pendentes > 0 && !confirm("Ainda há alterações que não foram enviadas. Se sair agora, elas são apagadas deste aparelho. Continuar?")) return;
+    await logout();
+    await limparDadosOffline().catch(() => undefined);
+    router.replace("/login");
+  }
 
   if (loading || !me) return <Spinner />;
 
@@ -47,7 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mt-auto rounded-xl bg-surface-2 p-3 text-xs">
           <p className="truncate font-medium text-ink">{family?.families?.name ?? "Sem família"}</p>
           <p className="truncate text-muted">{me.email}</p>
-          <button onClick={() => logout().then(() => router.replace("/login"))} className="mt-2 text-brand hover:underline">
+          <button onClick={sair} className="mt-2 text-brand hover:underline">
             Sair
           </button>
         </div>
@@ -58,6 +70,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Brand compact />
           <span className="max-w-[50%] truncate text-xs text-muted">{family?.families?.name}</span>
         </header>
+
+        <BannerSincronizacao />
 
         {/* O respiro de baixo soma a altura da barra de navegacao com a faixa de gestos do aparelho,
             senao o ultimo bloco de cada tela fica embaixo da navegacao */}

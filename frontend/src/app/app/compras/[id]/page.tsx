@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
+import { comCache } from "@/lib/offline-cache";
 import { useFamilyData } from "@/lib/use-family-data";
+import { executarOuEnfileirar, useOperacoesDaCompra } from "@/lib/sync";
+import { aplicarFila } from "@/lib/compra-offline";
 import type { PurchaseDetail, PurchaseItem, StockGroup, StockItem } from "@/lib/types";
 import { formatBRL, formatDate, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
@@ -12,7 +15,10 @@ import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Sel
 export default function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { data: purchase, loading, error: loadError, reload, familyId } = useFamilyData(`/purchases/${id}`, (raw) => (raw as { purchase: PurchaseDetail }).purchase);
+  const { data: compraServidor, loading, error: loadError, reload, familyId } = useFamilyData(`/purchases/${id}`, (raw) => (raw as { purchase: PurchaseDetail }).purchase);
+  // Alteracoes feitas sem sinal ainda nao chegaram ao servidor, entao entram por cima dos dados
+  const operacoes = useOperacoesDaCompra(id);
+  const purchase = useMemo(() => (compraServidor ? aplicarFila(compraServidor, operacoes) : null), [compraServidor, operacoes]);
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -27,7 +33,13 @@ export default function PurchaseDetailPage() {
     setBusy(item.id);
     setError(null);
     try {
-      await api(`/families/${familyId}/purchases/${id}/items/${item.id}`, { method: "PATCH", body: { quantity: next } });
+      await executarOuEnfileirar({
+        familyId,
+        purchaseId: id,
+        method: "PATCH",
+        path: `/families/${familyId}/purchases/${id}/items/${item.id}`,
+        body: { quantity: next },
+      });
       await reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Falha ao atualizar");
@@ -215,8 +227,13 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api<{ items: StockItem[] }>(`/families/${familyId}/stock-items`).then((r) => setStock(r.items)).catch(() => undefined);
-    api<{ groups: StockGroup[] }>(`/families/${familyId}/stock-groups`).then((r) => setGroups(r.groups)).catch(() => undefined);
+    // Mesma chave usada pelas telas de estoque, para a lista ficar disponivel sem sinal
+    comCache(`${familyId}:/stock-items`, () => api<{ items: StockItem[] }>(`/families/${familyId}/stock-items`))
+      .then(({ valor }) => setStock(valor.items))
+      .catch(() => undefined);
+    comCache(`${familyId}:/stock-groups`, () => api<{ groups: StockGroup[] }>(`/families/${familyId}/stock-groups`))
+      .then(({ valor }) => setGroups(valor.groups))
+      .catch(() => undefined);
   }, [familyId]);
 
   const available = stock.filter((s) => !existingStockIds.includes(s.id));
@@ -231,11 +248,48 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
     }
     setLoading(true);
     try {
+      // O id nasce aqui para que reenviar a adicao depois de uma queda de sinal nao crie o item duas vezes
+      const idItem = crypto.randomUUID();
+      const selecionado = mode === "estoque" ? stock.find((s) => s.id === stockItemId) : undefined;
       const body =
         mode === "estoque"
-          ? { stockItemId, quantity }
-          : { itemName: itemName.trim(), quantity, groupId: groupId || null };
-      await api(`/families/${familyId}/purchases/${purchaseId}/items`, { method: "POST", body });
+          ? { id: idItem, stockItemId, quantity }
+          : { id: idItem, itemName: itemName.trim(), quantity, groupId: groupId || null };
+      // Como o item aparece na lista enquanto a alteracao ainda esta na fila
+      const previa: PurchaseItem = selecionado
+        ? {
+            id: idItem,
+            stock_item_id: selecionado.id,
+            item_name: selecionado.name,
+            quantity,
+            unit_price: null,
+            group_id: selecionado.group_id,
+            stock_groups: null,
+            stock_items: {
+              unit: selecionado.unit,
+              ideal_quantity: selecionado.ideal_quantity,
+              current_quantity: selecionado.current_quantity,
+              stock_groups: selecionado.stock_groups,
+            },
+          }
+        : {
+            id: idItem,
+            stock_item_id: null,
+            item_name: itemName.trim(),
+            quantity,
+            unit_price: null,
+            group_id: groupId || null,
+            stock_groups: groups.find((g) => g.id === groupId) ?? null,
+            stock_items: null,
+          };
+      await executarOuEnfileirar({
+        familyId,
+        purchaseId,
+        method: "POST",
+        path: `/families/${familyId}/purchases/${purchaseId}/items`,
+        body,
+        previa,
+      });
       onDone();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Falha ao adicionar");
@@ -314,7 +368,7 @@ function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: s
     }
     setLoading(withValue ? "valor" : "depois");
     try {
-      await api(`/families/${familyId}/purchases/${purchaseId}/finalize`, { method: "POST", body });
+      await executarOuEnfileirar({ familyId, purchaseId, method: "POST", path: `/families/${familyId}/purchases/${purchaseId}/finalize`, body });
       onDone();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Falha ao finalizar");
