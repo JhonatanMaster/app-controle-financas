@@ -14,6 +14,7 @@ const NAV = [
   { href: "/app", label: "Início", icon: HomeIcon },
   { href: "/app/estoque", label: "Estoque", icon: BoxIcon },
   { href: "/app/compras", label: "Compras", icon: CartIcon },
+  { href: "/app/combustivel", label: "Combustível", icon: FuelIcon },
   { href: "/app/familia", label: "Família", icon: UsersIcon },
 ];
 
@@ -145,6 +146,16 @@ function CartIcon({ className }: IconProps) {
       <circle cx="9" cy="20" r="1.5" />
       <circle cx="18" cy="20" r="1.5" />
       <path d="M2 3h3l2.5 12h11L21 7H6" />
+    </svg>
+  );
+}
+function FuelIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
+      <path d="M3 21h12" />
+      <path d="M15 10h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V7.8L19 5" />
+      <path d="M7 8h4" />
     </svg>
   );
 }

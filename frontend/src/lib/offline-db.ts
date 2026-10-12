@@ -13,7 +13,7 @@ export type Operacao = {
   seq?: number;
   familyId: string;
   purchaseId: string | null;
-  method: "PATCH" | "POST";
+  method: "PATCH" | "POST" | "DELETE";
   path: string;
   body: unknown;
   criadoEm: string;
