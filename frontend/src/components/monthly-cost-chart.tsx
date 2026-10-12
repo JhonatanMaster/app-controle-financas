@@ -6,7 +6,7 @@ export type MonthlyCost = {
   key: string;
   label: string;
   total: number;
-  purchases: number;
+  count: number;
 };
 
 const PLOT_HEIGHT = 168;
@@ -15,9 +15,16 @@ const LABEL_BAND = 22;
 
 /**
  * Serie unica, entao uma cor so e sem legenda. O titulo do bloco ja diz o que esta plotado
- * e o valor fica escrito no topo de cada barra, sem depender do tooltip.
+ * e o valor fica escrito no topo de cada barra, sem depender do tooltip. A unidade do tooltip
+ * muda conforme o registro plotado, compra ou abastecimento.
  */
-export function MonthlyCostChart({ data }: { data: MonthlyCost[] }) {
+export function MonthlyCostChart({
+  data,
+  unidade = { singular: "compra", plural: "compras" },
+}: {
+  data: MonthlyCost[];
+  unidade?: { singular: string; plural: string };
+}) {
   const max = Math.max(...data.map((d) => d.total), 0);
   const scaleTop = niceCeil(max);
 
@@ -34,7 +41,7 @@ export function MonthlyCostChart({ data }: { data: MonthlyCost[] }) {
               <div
                 className="rounded-t bg-brand transition-opacity group-hover:opacity-80"
                 style={{ width: BAR_WIDTH, height: barHeight }}
-                title={`${month.label}: ${formatBRL(month.total)} em ${month.purchases} ${month.purchases === 1 ? "compra" : "compras"}`}
+                title={`${month.label}: ${formatBRL(month.total)} em ${month.count} ${month.count === 1 ? unidade.singular : unidade.plural}`}
               />
               <div className="mt-2 h-px w-full bg-line" />
               <span className="mt-1.5 text-xs capitalize text-muted">{month.label}</span>

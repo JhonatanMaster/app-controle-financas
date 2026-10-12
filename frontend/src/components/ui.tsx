@@ -58,6 +58,60 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ l
   );
 });
 
+const formatoReais = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Teto de digitos, 999.999.999,99, para um toque a mais nao estourar o valor
+const DIGITOS_MAXIMOS = 11;
+
+type InputMoedaProps = {
+  label?: string;
+  name: string;
+  /** Valor em reais, ou null quando o campo esta vazio */
+  value: number | null;
+  onValueChange: (valor: number | null) => void;
+  error?: string;
+  hint?: string;
+  required?: boolean;
+  autoFocus?: boolean;
+};
+
+/**
+ * Campo de valor em reais. Cada digito que a pessoa digita entra pela direita, como em app de
+ * banco: 102022 vira R$ 1.020,22. Assim o valor aparece formatado ja na digitacao, e o numero
+ * entregue a quem chama ja esta em reais, sem precisar trocar virgula por ponto.
+ */
+export function InputMoeda({ label, name, value, onValueChange, error, hint, required, autoFocus }: InputMoedaProps) {
+  const exibido = value === null ? "" : `R$ ${formatoReais.format(value)}`;
+
+  function aoDigitar(texto: string) {
+    const digitos = texto.replace(/\D/g, "").slice(0, DIGITOS_MAXIMOS);
+    onValueChange(digitos === "" ? null : Number(digitos) / 100);
+  }
+
+  return (
+    <label className="block min-w-0" htmlFor={name}>
+      {label ? <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span> : null}
+      <input
+        id={name}
+        name={name}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        placeholder="R$ 0,00"
+        required={required}
+        autoFocus={autoFocus}
+        value={exibido}
+        onChange={(e) => aoDigitar(e.target.value)}
+        className={`h-11 w-full min-w-0 appearance-none rounded-xl border bg-surface px-3.5 text-base text-ink tabular-nums outline-none transition placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 ${
+          error ? "border-red-500" : "border-line"
+        }`}
+      />
+      {error ? <span className="mt-1 block text-xs text-red-600">{error}</span> : null}
+      {hint && !error ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
+    </label>
+  );
+}
+
 type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & { label?: string; hint?: string };
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select({ label, hint, className, id, children, ...rest }, ref) {

@@ -10,7 +10,7 @@ import { aplicarFila } from "@/lib/compra-offline";
 import type { PurchaseDetail, PurchaseItem, PurchaseValueChange, StockGroup, StockItem } from "@/lib/types";
 import { formatBRL, formatDate, formatDateTime, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
-import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
+import { Alert, Badge, Button, Card, Empty, Input, InputMoeda, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
 export default function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -378,7 +378,7 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
 }
 
 function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: string; purchaseId: string; onClose: () => void; onDone: () => void }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"valor" | "depois" | null>(null);
 
@@ -386,12 +386,11 @@ function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: s
     setError(null);
     const body: Record<string, unknown> = {};
     if (withValue) {
-      const v = Number(value.replace(",", "."));
-      if (Number.isNaN(v) || v < 0) {
+      if (value === null || value < 0) {
         setError("Informe um valor válido");
         return;
       }
-      body.totalValue = v;
+      body.totalValue = value;
     }
     setLoading(withValue ? "valor" : "depois");
     try {
@@ -411,7 +410,7 @@ function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: s
         <p className="mt-1 text-sm text-muted">O estoque será atualizado com o que está no carrinho. Informe o valor pago ou adicione depois.</p>
         {error ? <div className="mt-3"><Alert>{error}</Alert></div> : null}
         <div className="mt-4">
-          <Input label="Valor total (R$)" name="total" type="number" inputMode="decimal" step="0.01" min={0} placeholder="0,00" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+          <InputMoeda label="Valor total" name="total" value={value} onValueChange={setValue} autoFocus />
         </div>
         <div className="mt-4 flex flex-col gap-2">
           <Button size="lg" onClick={() => finalize(true)} loading={loading === "valor"} disabled={loading === "depois"}>
@@ -447,25 +446,25 @@ function SetValueForm({
   onDone: () => void;
 }) {
   const corrigindo = valorAtual !== null;
-  const [value, setValue] = useState(corrigindo ? String(valorAtual) : "");
+  // Ao corrigir, o campo abre com o valor atual ja formatado em reais
+  const [value, setValue] = useState<number | null>(valorAtual);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const v = Number(value.replace(",", "."));
-    if (Number.isNaN(v) || v < 0) {
+    if (value === null || value < 0) {
       setError("Informe um valor válido");
       return;
     }
-    if (corrigindo && v === valorAtual) {
+    if (corrigindo && value === valorAtual) {
       setError("O valor é igual ao atual");
       return;
     }
     setError(null);
     setLoading(true);
     try {
-      await api(`/families/${familyId}/purchases/${purchaseId}/value`, { method: "PATCH", body: { totalValue: v } });
+      await api(`/families/${familyId}/purchases/${purchaseId}/value`, { method: "PATCH", body: { totalValue: value } });
       onDone();
     } catch (err) {
       // Diferente dos itens, o valor nao entra na fila offline, porque a correcao pode esbarrar no
@@ -479,17 +478,13 @@ function SetValueForm({
   return (
     <form onSubmit={onSubmit} className="mt-4 flex flex-wrap items-end gap-2">
       <div className="min-w-0 flex-1 basis-40">
-        <Input
-          label={corrigindo ? "Novo valor (R$)" : "Informar valor agora (R$)"}
+        <InputMoeda
+          label={corrigindo ? "Novo valor" : "Informar valor agora"}
           name="value"
-          type="number"
-          inputMode="decimal"
-          step="0.01"
-          min={0}
           required
           autoFocus={corrigindo}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onValueChange={setValue}
           error={error ?? undefined}
         />
       </div>

@@ -8,17 +8,9 @@ import { useFamilyData } from "@/lib/use-family-data";
 import type { PurchaseSummary, ShoppingListItem } from "@/lib/types";
 import { formatBRL, formatDate, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
-import {
-  addMonths,
-  monthLabel,
-  parseIsoDate,
-  periodOf,
-  startOfMonth,
-  toIsoDate,
-  type GroupBy,
-} from "@/lib/periods";
+import { custoDosUltimosMeses, grupoDoRegistro, type GroupBy } from "@/lib/periods";
 import { MonthlyCostChart } from "@/components/monthly-cost-chart";
-import { Alert, Badge, Button, Card, Empty, Input, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
+import { Alert, Badge, Button, Card, Empty, Input, InputMoeda, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
 export default function ComprasPage() {
   const router = useRouter();
@@ -47,10 +39,7 @@ export default function ComprasPage() {
     const buckets = new Map<string, { label: string; items: PurchaseSummary[]; total: number; pending: number }>();
 
     for (const purchase of history) {
-      const { key, label } =
-        groupBy === "periodo"
-          ? { key: "periodo", label: periodRangeLabel(from, to) }
-          : periodOf(purchase.purchase_date, groupBy);
+      const { key, label } = grupoDoRegistro(purchase.purchase_date, groupBy, from, to);
 
       let bucket = buckets.get(key);
       if (!bucket) {
@@ -67,20 +56,10 @@ export default function ComprasPage() {
       .map(([key, bucket]) => ({ key, ...bucket }));
   }, [history, groupBy, from, to]);
 
-  const monthlyCost = useMemo(() => {
-    const base = startOfMonth(new Date());
-    return [2, 1, 0].map((back) => {
-      const monthStart = addMonths(base, -back);
-      const key = toIsoDate(monthStart);
-      const monthPurchases = allHistory.filter((p) => toIsoDate(startOfMonth(parseIsoDate(p.purchase_date))) === key);
-      return {
-        key,
-        label: monthLabel(monthStart),
-        total: monthPurchases.reduce((acc, p) => acc + (p.total_value ?? 0), 0),
-        purchases: monthPurchases.length,
-      };
-    });
-  }, [allHistory]);
+  const monthlyCost = useMemo(
+    () => custoDosUltimosMeses(allHistory, (p) => p.purchase_date, (p) => p.total_value),
+    [allHistory],
+  );
   const shoppingSections = useMemo(
     () =>
       groupIntoSections(shopping.data ?? [], (it) => ({
@@ -273,17 +252,10 @@ export default function ComprasPage() {
   );
 }
 
-function periodRangeLabel(from: string, to: string) {
-  if (from && to) return `${formatDate(from)} a ${formatDate(to)}`;
-  if (from) return `A partir de ${formatDate(from)}`;
-  if (to) return `Até ${formatDate(to)}`;
-  return "Todo o período";
-}
-
 function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: string, detailed: boolean) => void }) {
   const [mode, setMode] = useState<"simples" | "detalhada">("simples");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -295,9 +267,8 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
     try {
       const body: Record<string, unknown> = { type: "avulsa", purchaseDate: date, notes: notes || undefined, fromShoppingList: false };
       if (mode === "simples") {
-        const v = Number(value.replace(",", "."));
-        if (Number.isNaN(v)) throw new Error("Valor inválido");
-        body.totalValue = v;
+        if (value === null) throw new Error("Informe o valor da compra");
+        body.totalValue = value;
       }
       const res = await api<{ purchase: { id: string } }>(`/families/${familyId}/purchases`, { method: "POST", body });
       onDone(res.purchase.id, mode === "detalhada");
@@ -331,7 +302,7 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
         {mode === "simples" ? (
           <div className="grid grid-cols-2 gap-3">
             {campoData}
-            <Input label="Valor (R$)" name="value" type="number" inputMode="decimal" step="0.01" min={0} required value={value} onChange={(e) => setValue(e.target.value)} />
+            <InputMoeda label="Valor" name="value" required value={value} onValueChange={setValue} />
           </div>
         ) : (
           // Sem o campo de valor o aviso ocupa a linha inteira, porque espremido ao lado da data
