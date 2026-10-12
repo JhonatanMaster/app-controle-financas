@@ -109,6 +109,29 @@ export type FamilyMember = {
   joined_at: string | null;
 };
 
+export type FuelType = "alcool" | "gasolina";
+
+export type FuelFill = {
+  id: string;
+  created_by: string;
+  /** Nome de quem lancou, para mostrar na lista quando os registros sao compartilhados */
+  author_name: string | null;
+  fill_date: string;
+  fuel_type: FuelType;
+  value: number;
+  station_name: string | null;
+  created_at: string;
+};
+
+/** Abastecimentos visiveis para quem pediu, junto com a configuracao de compartilhamento */
+export type FuelResponse = {
+  shared: boolean;
+  isTitular: boolean;
+  userId: string;
+  userName: string | null;
+  fills: FuelFill[];
+};
+
 export type Person = {
   id: string;
   name: string;

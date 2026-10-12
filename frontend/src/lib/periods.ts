@@ -1,3 +1,5 @@
+import { formatDate } from "./format";
+
 export type GroupBy = "semana" | "mes" | "periodo";
 
 /**
@@ -53,4 +55,47 @@ export function periodOf(purchaseDateIso: string, groupBy: Exclude<GroupBy, "per
 
 export function monthLabel(date: Date) {
   return MES_CURTO.format(date).replace(".", "");
+}
+
+/** Rotulo do intervalo escolhido no filtro de periodo especifico */
+export function periodRangeLabel(from: string, to: string) {
+  if (from && to) return `${formatDate(from)} a ${formatDate(to)}`;
+  if (from) return `A partir de ${formatDate(from)}`;
+  if (to) return `Até ${formatDate(to)}`;
+  return "Todo o período";
+}
+
+/**
+ * Grupo a que um registro pertence conforme o filtro escolhido. No periodo especifico todos os
+ * registros caem no mesmo grupo, que e o proprio intervalo.
+ */
+export function grupoDoRegistro(dataIso: string, groupBy: GroupBy, from: string, to: string) {
+  if (groupBy === "periodo") return { key: "periodo", label: periodRangeLabel(from, to) };
+  return periodOf(dataIso, groupBy);
+}
+
+/**
+ * Soma por mes dos ultimos meses, incluindo o atual, para o grafico de barras. Registros sem valor
+ * entram na contagem mas nao somam.
+ */
+export function custoDosUltimosMeses<T>(
+  itens: T[],
+  dataDe: (item: T) => string,
+  valorDe: (item: T) => number | null,
+  quantidade = 3,
+) {
+  const base = startOfMonth(new Date());
+  const voltas = Array.from({ length: quantidade }, (_, i) => quantidade - 1 - i);
+
+  return voltas.map((back) => {
+    const inicio = addMonths(base, -back);
+    const key = toIsoDate(inicio);
+    const doMes = itens.filter((item) => toIsoDate(startOfMonth(parseIsoDate(dataDe(item)))) === key);
+    return {
+      key,
+      label: monthLabel(inicio),
+      total: doMes.reduce((acc, item) => acc + (valorDe(item) ?? 0), 0),
+      count: doMes.length,
+    };
+  });
 }

@@ -142,6 +142,29 @@ export function useEstadoSincronizacao(): EstadoSincronizacao {
 }
 
 /**
+ * Operacoes ainda nao enviadas cujo caminho comeca pelo prefixo informado, na ordem em que foram
+ * feitas. Serve a telas de recursos que nao sao compra, como os abastecimentos.
+ */
+export function useOperacoesPorCaminho(prefixo: string | undefined): Operacao[] {
+  const [operacoes, setOperacoes] = useState<Operacao[]>([]);
+
+  useEffect(() => {
+    if (!prefixo) return;
+    const caminhoBase = prefixo;
+    function atualizar() {
+      listarOperacoes()
+        .then((lista) => setOperacoes(lista.filter((op) => op.path.startsWith(caminhoBase))))
+        .catch(() => undefined);
+    }
+    atualizar();
+    window.addEventListener(EVENTO_FILA, atualizar);
+    return () => window.removeEventListener(EVENTO_FILA, atualizar);
+  }, [prefixo]);
+
+  return operacoes;
+}
+
+/**
  * Operacoes ainda nao enviadas de uma compra, na ordem em que foram feitas.
  */
 export function useOperacoesDaCompra(purchaseId: string | undefined): Operacao[] {
