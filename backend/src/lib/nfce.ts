@@ -131,6 +131,26 @@ const MAXIMO_REDIRECIONAMENTOS = 4;
 export class ErroDeConsulta extends Error {}
 
 /**
+ * Cadeia de causas de uma falha de rede em uma linha. O fetch do Node so diz "fetch failed", e o
+ * que importa (ENOTFOUND, ECONNRESET, UND_ERR_CONNECT_TIMEOUT, erro de certificado) vem nas causas.
+ */
+export function descreverCausa(err: unknown): string {
+  const partes: string[] = [];
+  let atual: unknown = err;
+  for (let nivel = 0; atual && nivel < 5; nivel++) {
+    if (atual instanceof Error) {
+      const codigo = (atual as Error & { code?: string }).code;
+      partes.push(`${atual.name}${codigo ? ` ${codigo}` : ""} ${atual.message}`);
+      atual = atual.cause;
+    } else {
+      partes.push(String(atual));
+      break;
+    }
+  }
+  return partes.join(" <= ");
+}
+
+/**
  * Busca a pagina de consulta publica da nota.
  *
  * Os redirecionamentos sao seguidos a mao porque cada destino passa de novo pela lista de hosts
@@ -156,8 +176,10 @@ export async function buscarPaginaDaNota(urlInicial: URL): Promise<{ html: strin
           "Accept-Language": "pt-BR,pt;q=0.9",
         },
       });
-    } catch {
-      throw new ErroDeConsulta("A SEFAZ não respondeu. Tente de novo em alguns minutos.");
+    } catch (err) {
+      // A causa vai junto para o log, porque a mensagem ao usuario nao diz se foi DNS, bloqueio de
+      // IP, certificado ou tempo esgotado, e cada um se resolve de um jeito
+      throw new ErroDeConsulta("A SEFAZ não respondeu. Tente de novo em alguns minutos.", { cause: err });
     }
 
     if (resposta.status >= 300 && resposta.status < 400) {

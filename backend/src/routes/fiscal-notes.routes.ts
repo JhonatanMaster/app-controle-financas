@@ -4,6 +4,7 @@ import { requireAuth } from "../lib/auth-context.js";
 import { replyWithDbError } from "../lib/db-errors.js";
 import {
   buscarPaginaDaNota,
+  descreverCausa,
   ErroDeConsulta,
   interpretarPaginaDaNota,
   interpretarQrCode,
@@ -87,6 +88,10 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
           html = limparHtmlParaGuardar(pagina.html, pagina.urlFinal);
         } catch (err) {
           if (err instanceof ErroDeConsulta) {
+            request.log.warn(
+              { host: lido.url.hostname, causa: descreverCausa(err.cause ?? err) },
+              "falha ao consultar a nota na SEFAZ",
+            );
             return reply.code(502).send({ error: err.message, podeRegistrarSoChave: true });
           }
           throw err;
