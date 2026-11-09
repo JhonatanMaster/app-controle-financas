@@ -65,7 +65,9 @@ export async function purchasesRoutes(app: FastifyInstance) {
 
     let query = ctx.supabase
       .from("purchases")
-      .select("id, purchase_date, type, total_value, value_status, rateio_status, finalized_at, notes, created_at, purchase_items(count)")
+      .select(
+        "id, purchase_date, type, total_value, value_status, rateio_status, finalized_at, notes, payment_method, created_at, purchase_items(count), fiscal_notes(id, model, status, issuer_name)",
+      )
       .eq("family_id", familyId)
       .order("purchase_date", { ascending: false })
       .order("created_at", { ascending: false });
@@ -88,7 +90,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
     const { data, error } = await ctx.supabase
       .from("purchases")
       .select(
-        "*, purchase_items(id, stock_item_id, item_name, quantity, unit_price, group_id, stock_groups(id, name, sort_order), stock_items(unit, ideal_quantity, current_quantity, stock_groups(id, name, sort_order))), purchase_splits(id, person_id, amount, people(name)), purchase_value_changes(id, old_value, new_value, changed_by_name, changed_at)",
+        "*, purchase_items(id, stock_item_id, item_name, quantity, unit, unit_price, total_price, product_code, created_at, group_id, stock_groups(id, name, sort_order), stock_items(unit, ideal_quantity, current_quantity, stock_groups(id, name, sort_order))), purchase_splits(id, person_id, amount, people(name)), purchase_value_changes(id, old_value, new_value, changed_by_name, changed_at), fiscal_notes(id, access_key, model, status, uf_code, series, number, issuer_name, issuer_cnpj, issuer_address, issued_at, total_value, discount_value, items_count, payments, authorization_protocol, consultation_url, created_at)",
       )
       .eq("id", purchaseId)
       .order("item_name", { referencedTable: "purchase_items", ascending: true })

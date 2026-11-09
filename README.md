@@ -51,6 +51,10 @@ rateio de cada compra e das contas da casa entre as pessoas, e comparativos de g
 - Lista de compras automática
 - Modo mercado com ajuste de quantidades, itens extras e finalização
 - Compras avulsas, só com o valor ou detalhadas por item, com seção própria
+- Compra pela nota fiscal: lendo o QR Code da NFC-e pela câmera (ou por foto), a compra entra
+  sozinha com loja, itens, unidade (kg ou unidade), quantidade, preço unitário, total da linha,
+  valor da nota e forma de pagamento. A nota fica guardada para ver completa e baixar. Também
+  aceita a chave de acesso digitada, de NFC-e ou NF-e, que registra a nota com valor a informar
 
 **Gastos**
 - Histórico agrupado por semana, mês ou intervalo escolhido no calendário, com o total de cada período

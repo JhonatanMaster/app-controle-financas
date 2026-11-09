@@ -7,9 +7,11 @@ import { comCacheDaFamilia, LISTA_GRUPOS, LISTA_ITENS_DO_ESTOQUE } from "@/lib/o
 import { useFamilyData } from "@/lib/use-family-data";
 import { executarOuEnfileirar, useOperacoesDaCompra } from "@/lib/sync";
 import { aplicarFila } from "@/lib/compra-offline";
-import type { PurchaseDetail, PurchaseItem, PurchaseValueChange, StockGroup, StockItem } from "@/lib/types";
+import { umSo, type PurchaseDetail, type PurchaseItem, type PurchaseValueChange, type StockGroup, type StockItem } from "@/lib/types";
 import { formatBRL, formatDate, formatDateTime, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
+import { quantidadeLegivel, unidadeLegivel } from "@/lib/nota-fiscal";
+import { NotaFiscalCard } from "@/components/nota-fiscal";
 import { Alert, Badge, Button, Card, Empty, Input, InputMoeda, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
 export default function PurchaseDetailPage() {
@@ -63,6 +65,7 @@ export default function PurchaseDetailPage() {
   if (!purchase) return <Alert>{error ?? "Compra não encontrada"}</Alert>;
 
   const isOpen = !purchase.finalized_at;
+  const nota = umSo(purchase.fiscal_notes);
   const total = purchase.purchase_items.reduce((acc, it) => acc + it.quantity, 0);
   // Item avulso guarda a propria secao, o item de estoque herda a dele
   const itemSections = groupIntoSections(purchase.purchase_items, (item) => {
@@ -123,9 +126,17 @@ export default function PurchaseDetailPage() {
               }}
             />
           ) : null}
+          {purchase.payment_method ? (
+            <p className="mt-2 text-sm text-ink">
+              <span className="text-muted">Pagamento: </span>
+              {purchase.payment_method}
+            </p>
+          ) : null}
           <HistoricoDoValor alteracoes={purchase.purchase_value_changes ?? []} />
         </Card>
       ) : null}
+
+      {nota && familyId ? <NotaFiscalCard familyId={familyId} nota={nota} itens={purchase.purchase_items} /> : null}
 
       {purchase.purchase_items.length === 0 ? (
         <Empty
@@ -143,10 +154,17 @@ export default function PurchaseDetailPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium text-ink">{item.item_name}</p>
                     <p className="text-xs text-muted">
-                      {item.stock_items ? `estoque: ${formatQty(item.stock_items.current_quantity)} · ideal ${formatQty(item.stock_items.ideal_quantity)} ${item.stock_items.unit}` : "item avulso"}
+                      {item.total_price !== undefined && item.total_price !== null
+                        ? `${quantidadeLegivel(item)} ${unidadeLegivel(item.unit)}${item.unit_price !== null ? ` × ${formatBRL(item.unit_price)}` : ""}`
+                        : item.stock_items
+                          ? `estoque: ${formatQty(item.stock_items.current_quantity)} · ideal ${formatQty(item.stock_items.ideal_quantity)} ${item.stock_items.unit}`
+                          : "item avulso"}
                     </p>
                   </div>
-                  {isOpen ? (
+                  {/* Item de nota ja tem o valor pago na linha, que interessa mais que a quantidade repetida */}
+                  {!isOpen && item.total_price !== undefined && item.total_price !== null ? (
+                    <span className="shrink-0 font-semibold tabular-nums text-ink">{formatBRL(item.total_price)}</span>
+                  ) : isOpen ? (
                     <div className="flex items-center gap-2">
                       <QtyButton label="−" onClick={() => changeQty(item, -1)} disabled={busy === item.id} />
                       <span className="w-8 text-center text-lg font-semibold text-ink">{formatQty(item.quantity)}</span>

@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useFamilyData } from "@/lib/use-family-data";
-import type { PurchaseSummary, ShoppingListItem } from "@/lib/types";
+import { umSo, type PurchaseSummary, type ShoppingListItem } from "@/lib/types";
 import { formatBRL, formatDate, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
 import { custoDosUltimosMeses, grupoDoRegistro, type GroupBy } from "@/lib/periods";
+import { nomeDoModelo } from "@/lib/nota-fiscal";
 import { MonthlyCostChart } from "@/components/monthly-cost-chart";
+import { ImportarNotaDialog } from "@/components/importar-nota";
 import { Alert, Badge, Button, Card, Empty, Input, InputMoeda, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
 export default function ComprasPage() {
@@ -20,6 +22,7 @@ export default function ComprasPage() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAvulsa, setShowAvulsa] = useState(false);
+  const [lendoNota, setLendoNota] = useState(false);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("mes");
   const [from, setFrom] = useState("");
@@ -91,6 +94,31 @@ export default function ComprasPage() {
       <PageTitle title="Compras" subtitle="Carrinho montado automaticamente pelo estoque." />
 
       {error ? <div className="mb-4"><Alert>{error}</Alert></div> : null}
+
+      {/* Fica no topo porque e o caminho mais rapido depois do caixa, com um QR Code a compra
+          inteira entra com itens, valor e forma de pagamento */}
+      <Card className="mb-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-medium text-ink">Passou no caixa?</p>
+            <p className="text-xs text-muted">Leia o QR Code do cupom e a compra entra com itens, total e pagamento.</p>
+          </div>
+          <Button size="sm" onClick={() => setLendoNota(true)} disabled={!familyId}>
+            Ler nota
+          </Button>
+        </div>
+      </Card>
+
+      {lendoNota && familyId ? (
+        <ImportarNotaDialog
+          familyId={familyId}
+          onClose={() => {
+            setLendoNota(false);
+            purchases.reload();
+          }}
+          onImportada={(id) => router.push(`/app/compras/${id}`)}
+        />
+      ) : null}
 
       {openPurchase ? (
         <Card className="mb-6 border-brand/40 bg-brand-soft/40">
@@ -206,21 +234,28 @@ export default function ComprasPage() {
                   </div>
                 </div>
                 <Card className="divide-y divide-line p-0">
-                  {period.items.map((p) => (
-                    <Link key={p.id} href={`/app/compras/${p.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-surface-2">
-                      <div>
+                  {period.items.map((p) => {
+                    const nota = umSo(p.fiscal_notes);
+                    return (
+                    <Link key={p.id} href={`/app/compras/${p.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-surface-2">
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-ink">{formatDate(p.purchase_date)}</p>
-                          {p.type === "avulsa" ? <Badge>avulsa</Badge> : null}
+                          {nota ? <Badge tone="brand">{nomeDoModelo(nota.model)}</Badge> : p.type === "avulsa" ? <Badge>avulsa</Badge> : null}
                         </div>
-                        <p className="text-xs text-muted">{p.purchase_items?.[0]?.count ?? 0} itens</p>
+                        {nota?.issuer_name ? <p className="truncate text-xs text-ink">{nota.issuer_name}</p> : null}
+                        <p className="text-xs text-muted">
+                          {p.purchase_items?.[0]?.count ?? 0} itens
+                          {p.payment_method ? ` · ${p.payment_method}` : null}
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="font-semibold text-ink">{formatBRL(p.total_value)}</p>
                         {p.value_status === "pendente" ? <Badge tone="warn">sem valor</Badge> : p.rateio_status === "fechado" ? <Badge tone="ok">rateado</Badge> : null}
                       </div>
                     </Link>
-                  ))}
+                    );
+                  })}
                 </Card>
               </div>
             ))}

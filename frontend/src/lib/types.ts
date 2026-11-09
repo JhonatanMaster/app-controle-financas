@@ -54,8 +54,48 @@ export type PurchaseSummary = {
   rateio_status: "pendente" | "fechado";
   finalized_at: string | null;
   notes: string | null;
+  /** Opcional porque uma compra guardada no aparelho antes desta versao chega sem o campo */
+  payment_method?: string | null;
   created_at: string;
   purchase_items: { count: number }[];
+  fiscal_notes?: Embutido<Pick<FiscalNote, "id" | "model" | "status" | "issuer_name">>;
+};
+
+/**
+ * Relacao um para um embutida pelo PostgREST. Ele devolve objeto quando reconhece a chave unica e
+ * lista nos demais casos, entao quem le usa umSo() em vez de confiar no formato.
+ */
+export type Embutido<T> = T | T[] | null;
+
+export function umSo<T>(valor: Embutido<T> | undefined): T | null {
+  if (!valor) return null;
+  return Array.isArray(valor) ? (valor[0] ?? null) : valor;
+}
+
+export type FiscalNotePayment = { method: string; value: number };
+
+/** Nota fiscal lida pelo QR Code ou registrada pela chave de acesso */
+export type FiscalNote = {
+  id: string;
+  access_key: string;
+  /** 65 para NFCe, o cupom do mercado, e 55 para NFe */
+  model: 55 | 65;
+  /** importada quando os itens vieram da SEFAZ, so_chave quando entrou apenas pela chave */
+  status: "importada" | "so_chave";
+  uf_code: number;
+  series: number | null;
+  number: number | null;
+  issuer_name: string | null;
+  issuer_cnpj: string | null;
+  issuer_address: string | null;
+  issued_at: string | null;
+  total_value: number | null;
+  discount_value: number | null;
+  items_count: number | null;
+  payments: FiscalNotePayment[];
+  authorization_protocol: string | null;
+  consultation_url: string | null;
+  created_at: string;
 };
 
 export type PurchaseItem = {
@@ -64,6 +104,10 @@ export type PurchaseItem = {
   item_name: string;
   quantity: number;
   unit_price: number | null;
+  /** Os tres campos abaixo so existem em itens vindos de nota fiscal */
+  unit?: string | null;
+  total_price?: number | null;
+  product_code?: string | null;
   group_id: string | null;
   stock_groups: StockGroup | null;
   stock_items: {
@@ -91,12 +135,13 @@ export type PurchaseValueChange = {
   changed_at: string;
 };
 
-export type PurchaseDetail = Omit<PurchaseSummary, "purchase_items"> & {
+export type PurchaseDetail = Omit<PurchaseSummary, "purchase_items" | "fiscal_notes"> & {
   family_id: string;
   purchase_items: PurchaseItem[];
   purchase_splits: PurchaseSplit[];
   // Opcional porque uma compra guardada no aparelho antes desta versao chega sem o campo
   purchase_value_changes?: PurchaseValueChange[];
+  fiscal_notes?: Embutido<FiscalNote>;
 };
 
 export type FamilyMember = {

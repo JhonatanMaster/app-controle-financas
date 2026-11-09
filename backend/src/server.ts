@@ -9,6 +9,7 @@ import { familiesRoutes } from "./routes/families.routes.js";
 import { stockRoutes } from "./routes/stock.routes.js";
 import { purchasesRoutes } from "./routes/purchases.routes.js";
 import { fuelRoutes } from "./routes/fuel.routes.js";
+import { fiscalNotesRoutes } from "./routes/fiscal-notes.routes.js";
 
 // Resolvido a partir do arquivo compilado, entao funciona tanto em src quanto em dist
 const { version: APP_VERSION } = JSON.parse(
@@ -75,6 +76,7 @@ await app.register(familiesRoutes);
 await app.register(stockRoutes);
 await app.register(purchasesRoutes);
 await app.register(fuelRoutes);
+await app.register(fiscalNotesRoutes);
 
 try {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });

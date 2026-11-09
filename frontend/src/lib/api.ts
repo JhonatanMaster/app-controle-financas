@@ -2,9 +2,12 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Corpo da resposta de erro, para rotas que devolvem mais que a mensagem (ex. o id de um registro repetido) */
+  data: Record<string, unknown> | null;
+  constructor(status: number, message: string, data: Record<string, unknown> | null = null) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -62,13 +65,14 @@ export async function api<T = unknown>(path: string, options: Options = {}): Pro
 
   if (!res.ok) {
     let message = "Erro inesperado";
+    let data: Record<string, unknown> | null = null;
     try {
-      const data = await res.json();
-      message = data.error ?? message;
+      data = await res.json();
+      if (typeof data?.error === "string") message = data.error;
     } catch {
       // resposta sem corpo JSON
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, data);
   }
 
   if (res.status === 204) return undefined as T;

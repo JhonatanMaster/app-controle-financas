@@ -279,6 +279,45 @@ continua funcionando durante o bloqueio. O estado fica na memória do processo: 
 libera os bloqueios, o que é aceitável com uma única instância e evita consultar o banco a cada
 tentativa de login.
 
+### 15. Compra pela nota fiscal, lida da consulta pública da SEFAZ
+
+O QR Code da NFC-e traz a URL da consulta pública do estado, com a chave e um hash que dispensa
+captcha. A API busca essa página e lê itens, total, pagamentos e cabeçalho. O leiaute é o da
+consulta resumida nacional (o XSLT do ENCAT, usado em SP, PR, MG, RS e outros), e o leitor tenta
+primeiro pela marcação (`tabResult`, `txtTit`, `Rqtd`, `RUN`, `RvlUnit`, `valor`) e depois pelo
+texto corrido, para portais que montam a mesma informação de outro jeito. Os testes ficam em
+`backend/src/lib/nfce.test.ts`, com um cupom real como modelo.
+
+Alternativas descartadas:
+
+- **Ler no navegador.** Os portais da SEFAZ não liberam CORS, e o frontend não deve conhecer
+  nenhum serviço além da API (decisão 2).
+- **Webservice de distribuição da SEFAZ.** Devolve o XML completo, mas exige certificado digital
+  do destinatário, que uma família não tem.
+- **API paga de terceiros.** Custo mensal e os dados de consumo da casa passando por mais um
+  fornecedor, para um ganho que a consulta pública já entrega.
+
+Três cuidados vêm de a API acessar uma URL que chegou de fora:
+
+- **Só portais `gov.br`.** Sem a trava, um QR Code forjado faria o servidor acessar qualquer
+  endereço, inclusive da rede interna. Cada redirecionamento passa de novo pela checagem, e há
+  limite de tempo, de tamanho e de importações por minuto.
+- **A página é guardada sem nada executável** (scripts, eventos, `javascript:`), e exibida num
+  `iframe` com `sandbox` vazio. A limpeza e o sandbox são duas barreiras independentes, porque a
+  página vem de um terceiro e é aberta dentro do app.
+- **A chave da página precisa bater com a do QR Code**, para que uma resposta de erro ou de outra
+  nota nunca vire esta compra.
+
+Compra, itens e nota nascem numa única função do banco (`importar_nota_fiscal`, `security
+invoker`, então o RLS vale normalmente). Em três chamadas, uma falha no meio deixaria uma compra
+sem itens. A chave é única por família, e a mesma nota lida duas vezes devolve a compra que já
+existe em vez de duplicar o gasto.
+
+Só com a chave digitada não há hash, e a consulta por chave pede captcha. A nota entra então com o
+que a própria chave informa (estado, mês, CNPJ, modelo, série e número), e a compra fica com valor
+pendente, no mesmo fluxo de "adicionar valor depois". O mesmo vale para NF-e, cuja consulta
+completa exige certificado.
+
 ## Modelo de dados
 
 | Entidade | Papel |
@@ -291,6 +330,7 @@ tentativa de login.
 | `stock_consumption_events` | Histórico de consumo, base para os comparativos |
 | `purchases` / `purchase_items` | Compras e seus itens, de reposição ou avulsas |
 | `purchase_splits` | Contribuição de cada pessoa numa compra |
+| `fiscal_notes` | Nota fiscal de uma compra (NFC-e ou NF-e), com pagamentos e a página original da SEFAZ |
 | `bill_categories` / `bills` / `bill_splits` | Contas da casa e rateio |
 
 A view `shopping_list` expõe os itens abaixo do mínimo, já com a quantidade sugerida e a seção.
@@ -330,5 +370,11 @@ A ordem importa: os comparativos dependem dos dados produzidos pelas duas etapas
 
 - O Safari do iOS ignora `user-scalable=no` desde o iOS 10. Lá o duplo toque deixa de dar zoom,
   mas o gesto de pinça continua funcionando.
+- A leitura da NFC-e depende do portal de cada estado. O leiaute foi validado com o de SP;
+  estados com marcação muito diferente podem não ter os itens lidos, e aí a nota entra só pela
+  chave. Alguns portais também recusam acesso de IPs fora do Brasil, o que importa se o servidor
+  estiver hospedado no exterior.
+- Os itens vindos da nota entram como avulsos e não abastecem o estoque. Associar o nome do cupom
+  a um item da despensa é o próximo passo natural.
 - Não há gestão de grupos de mercado além da criação: renomear, reordenar e excluir ficaram fora
   do escopo inicial. Excluir um grupo pelo banco devolve os itens para a seção "Outros".
