@@ -16,10 +16,34 @@ import type { FiscalNote, PurchaseItem } from "@/lib/types";
 import { Alert, Badge, Button, Card } from "@/components/ui";
 
 /** Resumo da nota no detalhe da compra, com os atalhos para ver a nota completa e baixar */
-export function NotaFiscalCard({ familyId, nota, itens }: { familyId: string; nota: FiscalNote; itens: PurchaseItem[] }) {
+export function NotaFiscalCard({
+  familyId,
+  nota,
+  itens,
+  onExcluida,
+}: {
+  familyId: string;
+  nota: FiscalNote;
+  itens: PurchaseItem[];
+  onExcluida: () => void;
+}) {
   const [aberta, setAberta] = useState(false);
   const [baixando, setBaixando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+
+  async function excluir() {
+    setErro(null);
+    setExcluindo(true);
+    try {
+      await api(`/families/${familyId}/fiscal-notes/${nota.id}`, { method: "DELETE" });
+      onExcluida();
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : "Sem conexão. Excluir a nota precisa de internet.");
+      setExcluindo(false);
+    }
+  }
 
   async function baixar() {
     setErro(null);
@@ -62,16 +86,38 @@ export function NotaFiscalCard({ familyId, nota, itens }: { familyId: string; no
 
       {erro ? <div className="mt-3"><Alert>{erro}</Alert></div> : null}
 
-      <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-        <Button size="sm" variant="secondary" onClick={() => setAberta(true)}>
-          Ver nota completa
-        </Button>
-        {nota.status === "importada" ? (
-          <Button size="sm" variant="ghost" onClick={baixar} loading={baixando}>
-            Baixar
+      {confirmandoExclusao ? (
+        // Confirmacao no proprio card, porque excluir leva a compra junto e nao tem como desfazer
+        <div className="mt-3 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-3">
+          <p className="text-sm text-red-800">
+            Excluir esta nota? A compra registrada por ela também será excluída
+            {itens.length > 0 ? `, com ${itens.length === 1 ? "o item" : `os ${itens.length} itens`} e o valor` : ""}. Não dá para
+            desfazer.
+          </p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setConfirmandoExclusao(false)} disabled={excluindo}>
+              Manter
+            </Button>
+            <Button size="sm" variant="danger" onClick={excluir} loading={excluindo}>
+              Excluir nota e compra
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
+          <Button size="sm" variant="secondary" onClick={() => setAberta(true)}>
+            Ver nota completa
           </Button>
-        ) : null}
-      </div>
+          {nota.status === "importada" ? (
+            <Button size="sm" variant="ghost" onClick={baixar} loading={baixando}>
+              Baixar
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" className="ml-auto text-red-700 hover:bg-red-50" onClick={() => setConfirmandoExclusao(true)}>
+            Excluir
+          </Button>
+        </div>
+      )}
 
       {aberta ? <NotaFiscalDialog familyId={familyId} nota={nota} itens={itens} onClose={() => setAberta(false)} onBaixar={baixar} baixando={baixando} /> : null}
     </Card>

@@ -145,6 +145,48 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
     },
   );
 
+  // Para quando a pessoa leu o cupom errado. A compra nasceu da nota, entao sai junto com ela, e o
+  // cascade leva itens, rateio e historico do valor. Diferente da exclusao comum de compra, aqui a
+  // compra finalizada pode sair, porque itens vindos da nota nao abastecem o estoque
+  app.delete("/families/:familyId/fiscal-notes/:noteId", async (request, reply) => {
+    const ctx = await requireAuth(request, reply);
+    if (!ctx) return;
+    const { familyId, noteId } = request.params as { familyId: string; noteId: string };
+
+    const { data: nota, error: erroNota } = await ctx.supabase
+      .from("fiscal_notes")
+      .select("purchase_id")
+      .eq("family_id", familyId)
+      .eq("id", noteId)
+      .single();
+    if (erroNota) return replyWithDbError(request, reply, erroNota, { PGRST116: "Nota não encontrada" });
+
+    // Defesa caso um item do estoque passe a ser associado a compra no futuro. Excluir aqui deixaria
+    // o estoque com uma entrada que nao existe mais
+    const { count, error: erroItens } = await ctx.supabase
+      .from("purchase_items")
+      .select("id", { count: "exact", head: true })
+      .eq("purchase_id", nota.purchase_id)
+      .not("stock_item_id", "is", null);
+    if (erroItens) return replyWithDbError(request, reply, erroItens);
+    if (count) {
+      return reply.code(409).send({ error: "Esta compra já alimentou o estoque e não pode ser excluída" });
+    }
+
+    const { data: removidas, error } = await ctx.supabase
+      .from("purchases")
+      .delete()
+      .eq("family_id", familyId)
+      .eq("id", nota.purchase_id)
+      .select("id");
+    if (error) return replyWithDbError(request, reply, error);
+    // O RLS nao da erro quando bloqueia um delete, so nao apaga nada
+    if (!removidas || removidas.length === 0) {
+      return reply.code(403).send({ error: "Você não tem permissão para excluir esta nota" });
+    }
+    return reply.send({ ok: true });
+  });
+
   // A pagina original fica fora do detalhe da compra porque pesa dezenas de KB e so e usada quando
   // a pessoa pede para ver ou baixar a nota completa
   app.get("/families/:familyId/fiscal-notes/:noteId/html", async (request, reply) => {

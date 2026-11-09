@@ -136,7 +136,9 @@ export default function PurchaseDetailPage() {
         </Card>
       ) : null}
 
-      {nota && familyId ? <NotaFiscalCard familyId={familyId} nota={nota} itens={purchase.purchase_items} /> : null}
+      {nota && familyId ? (
+        <NotaFiscalCard familyId={familyId} nota={nota} itens={purchase.purchase_items} onExcluida={() => router.replace("/app/compras")} />
+      ) : null}
 
       {purchase.purchase_items.length === 0 ? (
         <Empty
