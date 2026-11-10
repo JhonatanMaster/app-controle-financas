@@ -2,11 +2,12 @@
  * Leitura de notas fiscais de consumidor (NFCe) e de NFe pela chave de acesso ou pelo QR Code.
  *
  * O QR Code da NFCe traz a URL da consulta publica da SEFAZ do estado, com a chave e um hash que
- * dispensa captcha. A pagina devolvida segue o leiaute nacional da consulta resumida (o mesmo XSLT
- * do ENCAT em SP, PR, MG, RS e outros), e e dela que saem itens, total e forma de pagamento.
+ * dispensa captcha. A pagina segue o leiaute nacional da consulta resumida (o mesmo XSLT do ENCAT
+ * em SP, PR, MG, RS e outros), e e dela que saem itens, total e forma de pagamento.
  *
- * So com a chave digitada nao ha hash, e a consulta pela chave exige captcha. Nesse caso a nota
- * entra com o que a propria chave diz (estado, mes, CNPJ, modelo, serie e numero).
+ * Quem busca a pagina nao e a API. A SEFAZ SP recusa conexoes de IPs de datacenter, entao a busca
+ * e feita pelo servico comunica sefaz, que roda numa internet residencial no Brasil (ver
+ * relay-sefaz.ts). Aqui ficam a validacao da chave e a leitura da pagina que ele devolve.
  */
 
 // ========== Chave de acesso
@@ -122,89 +123,64 @@ export function urlDeConsultaPermitida(url: URL): boolean {
   return host.endsWith(".gov.br");
 }
 
-// ========== Busca da pagina na SEFAZ
+/**
+ * Chave contida na URL do QR Code. Na versao 2 ela e o primeiro campo do parametro p, separado
+ * por barra vertical. Na versao 1, ainda impressa por alguns emissores, vem no parametro chNFe.
+ */
+function chaveDaUrl(texto: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(texto.trim());
+  } catch {
+    return null;
+  }
+  return url.searchParams.get("p")?.split("|")[0] ?? url.searchParams.get("chNFe");
+}
 
-const TEMPO_LIMITE_MS = 15_000;
-const TAMANHO_MAXIMO = 3_000_000;
-const MAXIMO_REDIRECIONAMENTOS = 4;
+// ========== Entrada da pessoa
+
+export type NotaInformada =
+  | { tipo: "chave"; dados: DadosDaChave }
+  | { tipo: "numero"; numero: number };
+
+/**
+ * Interpreta o que a pessoa digitou ou o app leu do QR Code.
+ * @returns A nota, ou uma mensagem de erro pronta para o usuario.
+ */
+export function interpretarNotaInformada(texto: string): NotaInformada | { erro: string } {
+  const limpo = texto.trim();
+  const daUrl = chaveDaUrl(limpo);
+  if (daUrl !== null) {
+    const dados = decodificarChave(daUrl);
+    return dados ? { tipo: "chave", dados } : { erro: "O QR Code não traz uma chave de nota fiscal válida" };
+  }
+
+  // So digitos, espacos e pontos, como a chave e o numero aparecem impressos no cupom
+  if (!/^[\d\s.]+$/.test(limpo)) {
+    return { erro: "Informe a chave de acesso (44 números) ou o número da nota" };
+  }
+  const digitos = limpo.replace(/\D/g, "");
+
+  if (digitos.length === 44) {
+    const dados = decodificarChave(digitos);
+    return dados ? { tipo: "chave", dados } : { erro: "Chave de acesso inválida. Confira os 44 números." };
+  }
+  // O numero da nota tem no maximo nove digitos. Mais que isso e chave incompleta
+  if (digitos.length >= 1 && digitos.length <= 9 && Number(digitos) > 0) {
+    return { tipo: "numero", numero: Number(digitos) };
+  }
+  return { erro: `A chave de acesso tem 44 números, e foram informados ${digitos.length}` };
+}
+
+// ========== Pagina devolvida pela SEFAZ
 
 export class ErroDeConsulta extends Error {}
 
 /**
- * Cadeia de causas de uma falha de rede em uma linha. O fetch do Node so diz "fetch failed", e o
- * que importa (ENOTFOUND, ECONNRESET, UND_ERR_CONNECT_TIMEOUT, erro de certificado) vem nas causas.
+ * Bytes da pagina em texto. Varios portais ainda servem ISO 8859 1, e ler como UTF 8 estragaria os
+ * acentos dos produtos.
  */
-export function descreverCausa(err: unknown): string {
-  const partes: string[] = [];
-  let atual: unknown = err;
-  for (let nivel = 0; atual && nivel < 5; nivel++) {
-    if (atual instanceof Error) {
-      const codigo = (atual as Error & { code?: string }).code;
-      partes.push(`${atual.name}${codigo ? ` ${codigo}` : ""} ${atual.message}`);
-      atual = atual.cause;
-    } else {
-      partes.push(String(atual));
-      break;
-    }
-  }
-  return partes.join(" <= ");
-}
-
-/**
- * Busca a pagina de consulta publica da nota.
- *
- * Os redirecionamentos sao seguidos a mao porque cada destino passa de novo pela lista de hosts
- * permitidos. O QR Code de SP, por exemplo, aponta para um endereco curto que redireciona para a
- * consulta resumida.
- */
-export async function buscarPaginaDaNota(urlInicial: URL): Promise<{ html: string; urlFinal: string }> {
-  let url = urlInicial;
-
-  for (let salto = 0; salto <= MAXIMO_REDIRECIONAMENTOS; salto++) {
-    if (!urlDeConsultaPermitida(url)) {
-      throw new ErroDeConsulta("O QR Code não aponta para um portal da SEFAZ");
-    }
-
-    let resposta: Response;
-    try {
-      resposta = await fetch(url, {
-        redirect: "manual",
-        signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; ControleFinancas/1.0)",
-          Accept: "text/html,application/xhtml+xml",
-          "Accept-Language": "pt-BR,pt;q=0.9",
-        },
-      });
-    } catch (err) {
-      // A causa vai junto para o log, porque a mensagem ao usuario nao diz se foi DNS, bloqueio de
-      // IP, certificado ou tempo esgotado, e cada um se resolve de um jeito
-      throw new ErroDeConsulta("A SEFAZ não respondeu. Tente de novo em alguns minutos.", { cause: err });
-    }
-
-    if (resposta.status >= 300 && resposta.status < 400) {
-      const destino = resposta.headers.get("location");
-      if (!destino) throw new ErroDeConsulta("A SEFAZ devolveu um redirecionamento inválido");
-      url = new URL(destino, url);
-      continue;
-    }
-
-    if (!resposta.ok) {
-      throw new ErroDeConsulta(`A SEFAZ recusou a consulta (HTTP ${resposta.status})`);
-    }
-
-    const bytes = new Uint8Array(await resposta.arrayBuffer());
-    if (bytes.byteLength > TAMANHO_MAXIMO) {
-      throw new ErroDeConsulta("A página da nota veio grande demais");
-    }
-    return { html: decodificar(bytes, resposta.headers.get("content-type")), urlFinal: url.toString() };
-  }
-
-  throw new ErroDeConsulta("A SEFAZ redirecionou vezes demais");
-}
-
-/** Varios portais ainda servem ISO 8859 1, e ler como UTF 8 estragaria os acentos dos produtos */
-function decodificar(bytes: Uint8Array, contentType: string | null): string {
+export function decodificarPagina(bytes: Uint8Array, contentType: string | null): string {
   const doCabecalho = /charset=([\w-]+)/i.exec(contentType ?? "")?.[1];
   const inicio = new TextDecoder("latin1").decode(bytes.slice(0, 2048));
   const doMeta = /<meta[^>]+charset=["']?([\w-]+)/i.exec(inicio)?.[1];
@@ -467,53 +443,4 @@ export function limparHtmlParaGuardar(html: string, urlBase: string): string {
   // Com a base, o CSS e as imagens do portal continuam carregando quando a pagina e aberta fora dele
   const base = `<base href="${urlBase.replace(/"/g, "&quot;")}">`;
   return /<head[^>]*>/i.test(limpo) ? limpo.replace(/<head[^>]*>/i, (m) => `${m}${base}`) : `${base}${limpo}`;
-}
-
-/**
- * Chave contida na URL do QR Code. Na versao 2 ela e o primeiro campo do parametro p, separado
- * por barra vertical. Na versao 1, ainda impressa por alguns emissores, vem no parametro chNFe.
- */
-function chaveDaUrl(texto: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(texto.trim());
-  } catch {
-    return null;
-  }
-  return url.searchParams.get("p")?.split("|")[0] ?? url.searchParams.get("chNFe");
-}
-
-// ========== Entrada da pessoa
-
-export type NotaInformada =
-  | { tipo: "chave"; dados: DadosDaChave }
-  | { tipo: "numero"; numero: number };
-
-/**
- * Interpreta o que a pessoa digitou ou o app leu do QR Code.
- * @returns A nota, ou uma mensagem de erro pronta para o usuario.
- */
-export function interpretarNotaInformada(texto: string): NotaInformada | { erro: string } {
-  const limpo = texto.trim();
-  const daUrl = chaveDaUrl(limpo);
-  if (daUrl !== null) {
-    const dados = decodificarChave(daUrl);
-    return dados ? { tipo: "chave", dados } : { erro: "O QR Code não traz uma chave de nota fiscal válida" };
-  }
-
-  // So digitos, espacos e pontos, como a chave e o numero aparecem impressos no cupom
-  if (!/^[\d\s.]+$/.test(limpo)) {
-    return { erro: "Informe a chave de acesso (44 números) ou o número da nota" };
-  }
-  const digitos = limpo.replace(/\D/g, "");
-
-  if (digitos.length === 44) {
-    const dados = decodificarChave(digitos);
-    return dados ? { tipo: "chave", dados } : { erro: "Chave de acesso inválida. Confira os 44 números." };
-  }
-  // O numero da nota tem no maximo nove digitos. Mais que isso e chave incompleta
-  if (digitos.length >= 1 && digitos.length <= 9 && Number(digitos) > 0) {
-    return { tipo: "numero", numero: Number(digitos) };
-  }
-  return { erro: `A chave de acesso tem 44 números, e foram informados ${digitos.length}` };
 }

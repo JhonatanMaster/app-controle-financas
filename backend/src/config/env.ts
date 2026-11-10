@@ -64,6 +64,11 @@ const envSchema = z
     RESEND_API_KEY: optionalString,
     RESEND_FROM_EMAIL: z.string().default("Controle Finanças <no-reply@localhost>"),
     APP_BASE_URL: publicUrl("APP_BASE_URL"),
+    // Segredo compartilhado com o servico comunica sefaz, que consulta a SEFAZ de uma internet
+    // residencial no Brasil. Vazio desliga a leitura automatica da nota pelo QR Code
+    SEFAZ_RELAY_TOKEN: optionalString.refine((valor) => !valor || valor.length >= 32, {
+      message: "SEFAZ_RELAY_TOKEN precisa ter pelo menos 32 caracteres, gere com openssl rand -hex 32",
+    }),
   })
   // Sem Resend o e-mail vai para o log, o que so faz sentido rodando local
   .superRefine((config, ctx) => {

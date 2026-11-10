@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useFamilyData } from "@/lib/use-family-data";
 import { umSo, type PurchaseSummary, type ShoppingListItem } from "@/lib/types";
@@ -24,6 +24,15 @@ export default function ComprasPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAvulsa, setShowAvulsa] = useState(false);
   const [lendoNota, setLendoNota] = useState(false);
+  // A leitura pela SEFAZ depende do servico comunica sefaz. Sem ele configurado no servidor o card
+  // nao aparece, e a nota entra pela chave ou pelo numero na compra avulsa e no finalizar
+  const [leituraAutomatica, setLeituraAutomatica] = useState(false);
+
+  useEffect(() => {
+    api<{ leituraAutomatica: boolean }>("/relay/sefaz/status")
+      .then((res) => setLeituraAutomatica(res.leituraAutomatica))
+      .catch(() => setLeituraAutomatica(false));
+  }, []);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("mes");
   const [from, setFrom] = useState("");
@@ -98,17 +107,19 @@ export default function ComprasPage() {
 
       {/* Fica no topo porque e o caminho mais rapido depois do caixa, com um QR Code a compra
           inteira entra com itens, valor e forma de pagamento */}
-      <Card className="mb-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-medium text-ink">Passou no caixa?</p>
-            <p className="text-xs text-muted">Leia o QR Code do cupom e a compra entra com itens, total e pagamento.</p>
+      {leituraAutomatica ? (
+        <Card className="mb-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium text-ink">Passou no caixa?</p>
+              <p className="text-xs text-muted">Leia o QR Code do cupom e a compra entra com itens, total e pagamento.</p>
+            </div>
+            <Button size="sm" onClick={() => setLendoNota(true)} disabled={!familyId}>
+              Ler nota
+            </Button>
           </div>
-          <Button size="sm" onClick={() => setLendoNota(true)} disabled={!familyId}>
-            Ler nota
-          </Button>
-        </div>
-      </Card>
+        </Card>
+      ) : null}
 
       {lendoNota && familyId ? (
         <ImportarNotaDialog
@@ -353,7 +364,10 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
           // ele quebrava em varias linhas e passava por cima do campo
           <div className="flex flex-col gap-1.5">
             {campoData}
-            <p className="text-xs text-muted">Você vai adicionar os itens na próxima tela.</p>
+            <p className="text-xs text-muted">
+              Você vai adicionar os itens na próxima tela. Os escolhidos do estoque entram nele ao finalizar, e a nota
+              fiscal é informada junto com o valor.
+            </p>
           </div>
         )}
         <Input label="Observação (opcional)" name="notes" placeholder="Ex.: compra do João no Extra" value={notes} onChange={(e) => setNotes(e.target.value)} />

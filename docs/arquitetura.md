@@ -279,44 +279,52 @@ continua funcionando durante o bloqueio. O estado fica na memória do processo: 
 libera os bloqueios, o que é aceitável com uma única instância e evita consultar o banco a cada
 tentativa de login.
 
-### 15. Compra pela nota fiscal, lida da consulta pública da SEFAZ
+### 15. Nota fiscal lida pelo QR Code através de uma conexão residencial
 
 O QR Code da NFC-e traz a URL da consulta pública do estado, com a chave e um hash que dispensa
-captcha. A API busca essa página e lê itens, total, pagamentos e cabeçalho. O leiaute é o da
-consulta resumida nacional (o XSLT do ENCAT, usado em SP, PR, MG, RS e outros), e o leitor tenta
-primeiro pela marcação (`tabResult`, `txtTit`, `Rqtd`, `RUN`, `RvlUnit`, `valor`) e depois pelo
-texto corrido, para portais que montam a mesma informação de outro jeito. Os testes ficam em
+captcha. A página segue o leiaute nacional da consulta resumida (o XSLT do ENCAT), e a API lê
+dela itens, total, pagamentos e cabeçalho, primeiro pela marcação (`tabResult`, `txtTit`, `Rqtd`,
+`RUN`, `RvlUnit`, `valor`) e depois pelo texto corrido. Os testes ficam em
 `backend/src/lib/nfce.test.ts`, com um cupom real como modelo.
 
-Alternativas descartadas:
+**Quem busca a página não é a API.** Em produção a SEFAZ SP derrubou todas as conexões da VPS
+(`ECONNRESET`). Uma Edge Function do Supabase executada em São Paulo teve o mesmo resultado, o
+que mostrou que o portal recusa IPs de datacenter, e não só estrangeiros. Da internet de casa a
+consulta funciona, mas o navegador não pode ler a página por outro site, porque o portal não
+libera CORS.
 
-- **Ler no navegador.** Os portais da SEFAZ não liberam CORS, e o frontend não deve conhecer
-  nenhum serviço além da API (decisão 2).
-- **Webservice de distribuição da SEFAZ.** Devolve o XML completo, mas exige certificado digital
-  do destinatário, que uma família não tem.
-- **API paga de terceiros.** Custo mensal e os dados de consumo da casa passando por mais um
-  fornecedor, para um ganho que a consulta pública já entrega.
+A busca fica então com o serviço [comunica sefaz](https://github.com/JhonatanMaster/comunica-sefaz),
+um container pequeno que roda numa internet residencial no Brasil:
 
-Três cuidados vêm de a API acessar uma URL que chegou de fora:
+```
+App ──> API (VPS) ── fila em memória ──> comunica sefaz (casa) ──> SEFAZ SP
+                  <── página em base64 ──┘
+```
 
-- **Só portais `gov.br`.** Sem a trava, um QR Code forjado faria o servidor acessar qualquer
-  endereço, inclusive da rede interna. Cada redirecionamento passa de novo pela checagem, e há
-  limite de tempo, de tamanho e de importações por minuto.
-- **A página é guardada sem nada executável** (scripts, eventos, `javascript:`), e exibida num
-  `iframe` com `sandbox` vazio. A limpeza e o sandbox são duas barreiras independentes, porque a
-  página vem de um terceiro e é aberta dentro do app.
-- **A chave da página precisa bater com a do QR Code**, para que uma resposta de erro ou de outra
-  nota nunca vire esta compra.
+- **Só conexões de saída.** O serviço mantém uma requisição aberta em `GET /relay/sefaz/proxima`
+  (long polling de 25 segundos), busca a página e devolve em `POST /relay/sefaz/resultado/:id`.
+  Não precisa de porta aberta, túnel nem IP fixo, e funciona atrás do CGNAT da operadora.
+- **Token compartilhado** (`SEFAZ_RELAY_TOKEN`, comparado em tempo constante). Sem ele as rotas
+  respondem 404 e a leitura automática fica desligada.
+- **A mesma trava `gov.br` dos dois lados.** O serviço só busca portais da SEFAZ, e a API confere
+  de novo o endereço final antes de usar a página.
+- **Serviço desligado não trava o app.** Sem contato há mais de 45 segundos, a API responde na hora
+  que a leitura está indisponível e oferece registrar só com a chave. Uma consulta sem resposta
+  em 35 segundos é abandonada.
+- **A fila mora na memória** do processo, como o bloqueio de login. Com uma única instância basta,
+  e uma consulta perdida num reinício só faz a pessoa ler o QR Code de novo.
 
 Compra, itens e nota nascem numa única função do banco (`importar_nota_fiscal`, `security
-invoker`, então o RLS vale normalmente). Em três chamadas, uma falha no meio deixaria uma compra
-sem itens. A chave é única por família, e a mesma nota lida duas vezes devolve a compra que já
-existe em vez de duplicar o gasto.
+invoker`). A página é guardada sem nada executável e exibida num `iframe` com `sandbox` vazio. A
+chave é única por família, e a mesma nota lida duas vezes devolve a compra que já existe.
 
-Só com a chave digitada não há hash, e a consulta por chave pede captcha. A nota entra então com o
-que a própria chave informa (estado, mês, CNPJ, modelo, série e número), e a compra fica com valor
-pendente, no mesmo fluxo de "adicionar valor depois". O mesmo vale para NF-e, cuja consulta
-completa exige certificado.
+**Nota informada à mão.** Quando o serviço está desligado, ou para quem prefere, a nota entra como
+dado da compra: a chave de acesso ou só o número, informados na compra avulsa, ao finalizar ou
+depois, em Editar. A chave é validada pelo dígito verificador no app e na API antes de qualquer
+escrita, e pode ser lida do QR Code pela câmera, sem consultar nada. "Ver na SEFAZ" copia a chave e
+abre o portal do estado numa nova aba. As notas informadas usam os status `so_chave` e `so_numero`
+e podem ser corrigidas; as lidas pelo QR Code (`importada`) são o retrato do que a SEFAZ devolveu e
+não mudam.
 
 ## Modelo de dados
 
@@ -330,7 +338,7 @@ completa exige certificado.
 | `stock_consumption_events` | Histórico de consumo, base para os comparativos |
 | `purchases` / `purchase_items` | Compras e seus itens, de reposição ou avulsas |
 | `purchase_splits` | Contribuição de cada pessoa numa compra |
-| `fiscal_notes` | Nota fiscal de uma compra (NFC-e ou NF-e), com pagamentos e a página original da SEFAZ |
+| `fiscal_notes` | Nota fiscal de uma compra: lida pelo QR Code, com itens e a página da SEFAZ, ou informada pela chave ou pelo número |
 | `bill_categories` / `bills` / `bill_splits` | Contas da casa e rateio |
 
 A view `shopping_list` expõe os itens abaixo do mínimo, já com a quantidade sugerida e a seção.
@@ -370,11 +378,8 @@ A ordem importa: os comparativos dependem dos dados produzidos pelas duas etapas
 
 - O Safari do iOS ignora `user-scalable=no` desde o iOS 10. Lá o duplo toque deixa de dar zoom,
   mas o gesto de pinça continua funcionando.
-- A leitura da NFC-e depende do portal de cada estado. O leiaute foi validado com o de SP;
-  estados com marcação muito diferente podem não ter os itens lidos, e aí a nota entra só pela
-  chave. Alguns portais também recusam acesso de IPs fora do Brasil, o que importa se o servidor
-  estiver hospedado no exterior.
-- Os itens vindos da nota entram como avulsos e não abastecem o estoque. Associar o nome do cupom
-  a um item da despensa é o próximo passo natural.
+- A leitura automática da nota depende do serviço comunica sefaz ligado numa internet residencial
+  (decisão 15). Com ele desligado, a nota entra só pela chave ou pelo número. Os itens lidos da nota
+  entram como avulsos e não abastecem o estoque.
 - Não há gestão de grupos de mercado além da criação: renomear, reordenar e excluir ficaram fora
   do escopo inicial. Excluir um grupo pelo banco devolve os itens para a seção "Outros".

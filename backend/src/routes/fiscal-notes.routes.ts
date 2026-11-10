@@ -2,16 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../lib/auth-context.js";
 import { replyWithDbError } from "../lib/db-errors.js";
+import { ErroDeConsulta, interpretarPaginaDaNota, interpretarQrCode, limparHtmlParaGuardar, type NotaLida } from "../lib/nfce.js";
 import { ERRO_NOTA_REPETIDA, salvarNotaDaCompra, validarNotaInformada } from "../lib/notas-fiscais.js";
-import {
-  buscarPaginaDaNota,
-  descreverCausa,
-  ErroDeConsulta,
-  interpretarPaginaDaNota,
-  interpretarQrCode,
-  limparHtmlParaGuardar,
-  type NotaLida,
-} from "../lib/nfce.js";
+import { consultarViaRelay } from "../lib/relay-sefaz.js";
 
 const importSchema = z.object({
   // O texto lido do QR Code, a URL colada ou a chave de 44 digitos digitada
@@ -21,8 +14,8 @@ const importSchema = z.object({
   apenasChave: z.boolean().default(false),
 });
 
-// Cada importacao com QR Code faz o servidor consultar a SEFAZ, entao o limite protege tanto o
-// portal do estado quanto a reputacao do IP do servidor
+// Cada importacao com QR Code vira uma consulta a SEFAZ pela internet de casa do servico comunica
+// sefaz, entao o limite protege o portal do estado e a conexao de quem hospeda o servico
 const LIMITE_IMPORTACAO = { max: 15, timeWindow: "1 minute" };
 
 /** Forma de pagamento resumida que vai para a compra; o detalhe de cada uma fica na nota */
@@ -77,7 +70,7 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
 
       if (lido.tipo === "url" && !parsed.data.apenasChave) {
         try {
-          const pagina = await buscarPaginaDaNota(lido.url);
+          const pagina = await consultarViaRelay(lido.url);
           urlDaConsulta = pagina.urlFinal;
           const interpretada = interpretarPaginaDaNota(pagina.html);
           // Uma pagina de outra nota, ou de erro do portal, nunca pode virar esta compra
@@ -95,7 +88,7 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
         } catch (err) {
           if (err instanceof ErroDeConsulta) {
             request.log.warn(
-              { host: lido.url.hostname, causa: descreverCausa(err.cause ?? err) },
+              { host: lido.url.hostname, causa: String(err.cause ?? err.message) },
               "falha ao consultar a nota na SEFAZ",
             );
             return reply.code(502).send({ error: err.message, podeRegistrarSoChave: true });
@@ -151,7 +144,7 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
     },
   );
 
-  // Para quando a pessoa leu o cupom errado. A compra nasceu da nota, entao sai junto com ela, e o
+  // Para quando a pessoa leu o cupom errado. A compra nasceu da leitura da nota, entao sai junto com ela, e o
   // cascade leva itens, rateio e historico do valor. Diferente da exclusao comum de compra, aqui a
   // compra finalizada pode sair, porque itens vindos da nota nao abastecem o estoque
   app.delete("/families/:familyId/fiscal-notes/:noteId", async (request, reply) => {
@@ -170,7 +163,6 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
     if (nota.status !== "importada") {
       return reply.code(400).send({ error: "Para tirar a nota desta compra, use Editar e Remover nota" });
     }
-
 
     // Defesa caso um item do estoque passe a ser associado a compra no futuro. Excluir aqui deixaria
     // o estoque com uma entrada que nao existe mais
