@@ -10,8 +10,9 @@ import { aplicarFila } from "@/lib/compra-offline";
 import { umSo, type PurchaseDetail, type PurchaseItem, type PurchaseValueChange, type StockGroup, type StockItem } from "@/lib/types";
 import { formatBRL, formatDate, formatDateTime, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
-import { quantidadeLegivel, unidadeLegivel } from "@/lib/nota-fiscal";
+import { erroDaNotaInformada, quantidadeLegivel, unidadeLegivel } from "@/lib/nota-fiscal";
 import { NotaFiscalCard } from "@/components/nota-fiscal";
+import { CampoNotaFiscal } from "@/components/campo-nota-fiscal";
 import { Alert, Badge, Button, Card, Empty, Input, InputMoeda, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
 export default function PurchaseDetailPage() {
@@ -136,8 +137,15 @@ export default function PurchaseDetailPage() {
         </Card>
       ) : null}
 
-      {nota && familyId ? (
-        <NotaFiscalCard familyId={familyId} nota={nota} itens={purchase.purchase_items} onExcluida={() => router.replace("/app/compras")} />
+      {!isOpen && familyId ? (
+        <NotaFiscalCard
+          familyId={familyId}
+          purchaseId={purchase.id}
+          nota={nota}
+          itens={purchase.purchase_items}
+          onAlterada={reload}
+          onExcluida={() => router.replace("/app/compras")}
+        />
       ) : null}
 
       {purchase.purchase_items.length === 0 ? (
@@ -163,7 +171,7 @@ export default function PurchaseDetailPage() {
                           : "item avulso"}
                     </p>
                   </div>
-                  {/* Item de nota ja tem o valor pago na linha, que interessa mais que a quantidade repetida */}
+                  {/* Item lido da nota ja tem o valor pago na linha, que interessa mais que a quantidade repetida */}
                   {!isOpen && item.total_price !== undefined && item.total_price !== null ? (
                     <span className="shrink-0 font-semibold tabular-nums text-ink">{formatBRL(item.total_price)}</span>
                   ) : isOpen ? (
@@ -399,6 +407,7 @@ function AddItemForm({ familyId, purchaseId, existingStockIds, onDone }: { famil
 
 function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: string; purchaseId: string; onClose: () => void; onDone: () => void }) {
   const [value, setValue] = useState<number | null>(null);
+  const [notaFiscal, setNotaFiscal] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"valor" | "depois" | null>(null);
 
@@ -412,6 +421,14 @@ function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: s
       }
       body.totalValue = value;
     }
+    // Conferida aqui porque o finalizar pode ir para a fila offline, e uma chave errada so seria
+    // recusada quando o sinal voltasse
+    const erroNota = erroDaNotaInformada(notaFiscal);
+    if (erroNota) {
+      setError(erroNota);
+      return;
+    }
+    if (notaFiscal.trim()) body.notaFiscal = notaFiscal.trim();
     setLoading(withValue ? "valor" : "depois");
     try {
       await executarOuEnfileirar({ familyId, purchaseId, method: "POST", path: `/families/${familyId}/purchases/${purchaseId}/finalize`, body });
@@ -425,12 +442,13 @@ function FinalizeDialog({ familyId, purchaseId, onClose, onDone }: { familyId: s
 
   return (
     <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 p-4 sm:items-center" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-semibold text-ink">Passou no caixa?</h2>
         <p className="mt-1 text-sm text-muted">O estoque será atualizado com o que está no carrinho. Informe o valor pago ou adicione depois.</p>
         {error ? <div className="mt-3"><Alert>{error}</Alert></div> : null}
-        <div className="mt-4">
+        <div className="mt-4 flex flex-col gap-3">
           <InputMoeda label="Valor total" name="total" value={value} onValueChange={setValue} autoFocus />
+          <CampoNotaFiscal value={notaFiscal} onChange={setNotaFiscal} />
         </div>
         <div className="mt-4 flex flex-col gap-2">
           <Button size="lg" onClick={() => finalize(true)} loading={loading === "valor"} disabled={loading === "depois"}>

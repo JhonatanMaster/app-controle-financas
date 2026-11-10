@@ -72,21 +72,21 @@ export function umSo<T>(valor: Embutido<T> | undefined): T | null {
   return Array.isArray(valor) ? (valor[0] ?? null) : valor;
 }
 
-export type FiscalNotePayment = { method: string; value: number };
-
-/** Nota fiscal lida pelo QR Code ou registrada pela chave de acesso */
+/** Nota fiscal informada na compra, pela chave de acesso ou so pelo numero */
 export type FiscalNote = {
   id: string;
-  access_key: string;
-  /** 65 para NFCe, o cupom do mercado, e 55 para NFe */
-  model: 55 | 65;
-  /** importada quando os itens vieram da SEFAZ, so_chave quando entrou apenas pela chave */
-  status: "importada" | "so_chave";
-  uf_code: number;
+  /** Nulo quando a pessoa informou so o numero */
+  access_key: string | null;
+  /** 65 para NFCe, o cupom do mercado, e 55 para NFe. Nulo sem a chave */
+  model: 55 | 65 | null;
+  /** importada quando os itens vieram da SEFAZ pelo QR Code; so_chave e so_numero dizem o que foi informado */
+  status: "importada" | "so_chave" | "so_numero";
+  uf_code: number | null;
   series: number | null;
   number: number | null;
   issuer_name: string | null;
   issuer_cnpj: string | null;
+  /** Os campos abaixo so vem preenchidos na nota lida pelo QR Code */
   issuer_address: string | null;
   issued_at: string | null;
   total_value: number | null;
@@ -98,13 +98,15 @@ export type FiscalNote = {
   created_at: string;
 };
 
+export type FiscalNotePayment = { method: string; value: number };
+
 export type PurchaseItem = {
   id: string;
   stock_item_id: string | null;
   item_name: string;
   quantity: number;
   unit_price: number | null;
-  /** Os tres campos abaixo so existem em itens vindos de nota fiscal */
+  /** Os tres campos abaixo so existem em itens lidos da nota fiscal */
   unit?: string | null;
   total_price?: number | null;
   product_code?: string | null;

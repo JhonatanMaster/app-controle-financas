@@ -9,8 +9,9 @@ import { umSo, type PurchaseSummary, type ShoppingListItem } from "@/lib/types";
 import { formatBRL, formatDate, formatQty } from "@/lib/format";
 import { groupIntoSections, shouldShowHeaders } from "@/lib/group-items";
 import { custoDosUltimosMeses, grupoDoRegistro, type GroupBy } from "@/lib/periods";
-import { nomeDoModelo } from "@/lib/nota-fiscal";
+import { erroDaNotaInformada, nomeDoModelo } from "@/lib/nota-fiscal";
 import { MonthlyCostChart } from "@/components/monthly-cost-chart";
+import { CampoNotaFiscal } from "@/components/campo-nota-fiscal";
 import { ImportarNotaDialog } from "@/components/importar-nota";
 import { Alert, Badge, Button, Card, Empty, Input, InputMoeda, PageTitle, SectionHeader, Select, Spinner } from "@/components/ui";
 
@@ -241,7 +242,8 @@ export default function ComprasPage() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-ink">{formatDate(p.purchase_date)}</p>
-                          {nota ? <Badge tone="brand">{nomeDoModelo(nota.model)}</Badge> : p.type === "avulsa" ? <Badge>avulsa</Badge> : null}
+                          {p.type === "avulsa" ? <Badge>avulsa</Badge> : null}
+                          {nota ? <Badge tone="brand">{nota.model ? nomeDoModelo(nota.model) : "NF"}</Badge> : null}
                         </div>
                         {nota?.issuer_name ? <p className="truncate text-xs text-ink">{nota.issuer_name}</p> : null}
                         <p className="text-xs text-muted">
@@ -292,6 +294,7 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [value, setValue] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
+  const [notaFiscal, setNotaFiscal] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -304,6 +307,9 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
       if (mode === "simples") {
         if (value === null) throw new Error("Informe o valor da compra");
         body.totalValue = value;
+        const erroNota = erroDaNotaInformada(notaFiscal);
+        if (erroNota) throw new Error(erroNota);
+        if (notaFiscal.trim()) body.notaFiscal = notaFiscal.trim();
       }
       const res = await api<{ purchase: { id: string } }>(`/families/${familyId}/purchases`, { method: "POST", body });
       onDone(res.purchase.id, mode === "detalhada");
@@ -335,10 +341,13 @@ function AvulsaForm({ familyId, onDone }: { familyId: string; onDone: (id: strin
           ))}
         </div>
         {mode === "simples" ? (
-          <div className="grid grid-cols-2 gap-3">
-            {campoData}
-            <InputMoeda label="Valor" name="value" required value={value} onValueChange={setValue} />
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              {campoData}
+              <InputMoeda label="Valor" name="value" required value={value} onValueChange={setValue} />
+            </div>
+            <CampoNotaFiscal value={notaFiscal} onChange={setNotaFiscal} />
+          </>
         ) : (
           // Sem o campo de valor o aviso ocupa a linha inteira, porque espremido ao lado da data
           // ele quebrava em varias linhas e passava por cima do campo

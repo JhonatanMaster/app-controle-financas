@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   decodificarChave,
+  interpretarNotaInformada,
   interpretarPaginaDaNota,
   interpretarQrCode,
   limparHtmlParaGuardar,
@@ -162,4 +163,32 @@ test("guarda a pagina sem nada que execute codigo", () => {
   assert.doesNotMatch(limpo, /javascript:/i);
   assert.match(limpo, /<head><base href="https:\/\/www\.nfce\.fazenda\.sp\.gov\.br\//);
   assert.match(limpo, /BATATA LAVADA EXTRA Kg/);
+});
+
+test("aceita a chave digitada com espacos", () => {
+  const nota = interpretarNotaInformada("3526 1101 1575 5500 2239 6511 0000 0796 4516 3235 6135");
+  assert.equal(nota.tipo === "chave" && nota.dados.chave, CHAVE);
+});
+
+test("a nota informada aceita a URL do QR Code versao 2 e versao 1", () => {
+  const v2 = interpretarNotaInformada(`https://www.nfce.fazenda.sp.gov.br/qrcode?p=${CHAVE}|2|1|1|ABCDEF0123456789`);
+  assert.equal(v2.tipo === "chave" && v2.dados.chave, CHAVE);
+
+  const v1 = interpretarNotaInformada(`https://www.sefaz.mt.gov.br/nfce/consultanfce?chNFe=${CHAVE}&nVersao=100`);
+  assert.equal(v1.tipo === "chave" && v1.dados.chave, CHAVE);
+
+  assert.ok("erro" in interpretarNotaInformada("https://exemplo.com/qualquer"));
+});
+
+test("aceita so o numero da nota", () => {
+  assert.deepEqual(interpretarNotaInformada("79645"), { tipo: "numero", numero: 79645 });
+  assert.deepEqual(interpretarNotaInformada("79.645"), { tipo: "numero", numero: 79645 });
+});
+
+test("recusa entradas que nao sao chave nem numero", () => {
+  assert.ok("erro" in interpretarNotaInformada("abc"));
+  assert.ok("erro" in interpretarNotaInformada("0"));
+  // Chave pela metade nao pode virar numero de nota
+  assert.ok("erro" in interpretarNotaInformada(CHAVE.slice(0, 20)));
+  assert.ok("erro" in interpretarNotaInformada(CHAVE.slice(0, 43) + "0"));
 });

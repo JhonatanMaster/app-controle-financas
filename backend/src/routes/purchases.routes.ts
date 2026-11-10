@@ -3,6 +3,10 @@ import { z } from "zod";
 import { requireAuth } from "../lib/auth-context.js";
 import { replyWithDbError } from "../lib/db-errors.js";
 import { groupBelongsToFamily } from "../lib/stock-groups.js";
+import { ERRO_NOTA_REPETIDA, salvarNotaDaCompra, validarNotaInformada } from "../lib/notas-fiscais.js";
+
+// Chave de acesso, URL do QR Code ou numero da nota, opcional ao registrar e ao finalizar
+const notaFiscalOpcional = z.string().trim().max(2000).optional();
 
 const createPurchaseSchema = z.object({
   type: z.enum(["reposicao", "avulsa"]).default("reposicao"),
@@ -12,6 +16,7 @@ const createPurchaseSchema = z.object({
   totalValue: z.number().nonnegative().optional(),
   // Quando true e type reposicao, ja popula o carrinho com a shopping_list
   fromShoppingList: z.boolean().default(true),
+  notaFiscal: notaFiscalOpcional,
 });
 
 const addItemSchema = z.object({
@@ -31,6 +36,7 @@ const updateItemSchema = z.object({
 
 const finalizeSchema = z.object({
   totalValue: z.number().nonnegative().optional(),
+  notaFiscal: notaFiscalOpcional,
 });
 
 const setValueSchema = z.object({
@@ -90,7 +96,7 @@ export async function purchasesRoutes(app: FastifyInstance) {
     const { data, error } = await ctx.supabase
       .from("purchases")
       .select(
-        "*, purchase_items(id, stock_item_id, item_name, quantity, unit, unit_price, total_price, product_code, created_at, group_id, stock_groups(id, name, sort_order), stock_items(unit, ideal_quantity, current_quantity, stock_groups(id, name, sort_order))), purchase_splits(id, person_id, amount, people(name)), purchase_value_changes(id, old_value, new_value, changed_by_name, changed_at), fiscal_notes(id, access_key, model, status, uf_code, series, number, issuer_name, issuer_cnpj, issuer_address, issued_at, total_value, discount_value, items_count, payments, authorization_protocol, consultation_url, created_at)",
+        "*, purchase_items(id, stock_item_id, item_name, quantity, unit, unit_price, total_price, product_code, group_id, stock_groups(id, name, sort_order), stock_items(unit, ideal_quantity, current_quantity, stock_groups(id, name, sort_order))), purchase_splits(id, person_id, amount, people(name)), purchase_value_changes(id, old_value, new_value, changed_by_name, changed_at), fiscal_notes(id, access_key, model, status, uf_code, series, number, issuer_name, issuer_cnpj, issuer_address, issued_at, total_value, discount_value, items_count, payments, authorization_protocol, consultation_url, created_at)",
       )
       .eq("id", purchaseId)
       .order("item_name", { referencedTable: "purchase_items", ascending: true })
@@ -112,6 +118,9 @@ export async function purchasesRoutes(app: FastifyInstance) {
     }
     const body = parsed.data;
 
+    const validacao = await validarNotaInformada(ctx.supabase, familyId, body.notaFiscal);
+    if (!validacao.ok) return reply.code(validacao.status).send({ error: validacao.erro });
+
     const hasValue = body.totalValue !== undefined;
 
     const { data: purchase, error } = await ctx.supabase
@@ -130,6 +139,17 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .single();
 
     if (error) return replyWithDbError(request, reply, error);
+
+    if (validacao.nota) {
+      const erroNota = await salvarNotaDaCompra(ctx.supabase, {
+        familyId,
+        purchaseId: purchase.id,
+        userId: ctx.userId,
+        nota: validacao.nota,
+      });
+      // A compra ja existe; a nota pode ser informada de novo pelo editar, entao so registra no log
+      if (erroNota) request.log.error(erroNota);
+    }
 
     if (body.type === "reposicao" && body.fromShoppingList) {
       const { data: suggestions } = await ctx.supabase
@@ -245,12 +265,15 @@ export async function purchasesRoutes(app: FastifyInstance) {
   app.post("/families/:familyId/purchases/:purchaseId/finalize", async (request, reply) => {
     const ctx = await requireAuth(request, reply);
     if (!ctx) return;
-    const { purchaseId } = request.params as { familyId: string; purchaseId: string };
+    const { familyId, purchaseId } = request.params as { familyId: string; purchaseId: string };
 
     const parsed = finalizeSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return reply.code(400).send({ error: "Dados inválidos" });
     }
+
+    const validacao = await validarNotaInformada(ctx.supabase, familyId, parsed.data.notaFiscal, purchaseId);
+    if (!validacao.ok) return reply.code(validacao.status).send({ error: validacao.erro });
 
     const { data: current, error: currentError } = await ctx.supabase
       .from("purchases")
@@ -278,6 +301,24 @@ export async function purchasesRoutes(app: FastifyInstance) {
       .single();
 
     if (error) return replyWithDbError(request, reply, error);
+
+    if (validacao.nota) {
+      const erroNota = await salvarNotaDaCompra(ctx.supabase, {
+        familyId,
+        purchaseId,
+        userId: ctx.userId,
+        nota: validacao.nota,
+      });
+      // Responder erro aqui faria a fila offline repetir o finalizar, que ja aconteceu e o estoque ja
+      // subiu. A compra segue finalizada e a nota pode ser informada de novo pelo editar
+      if (erroNota) {
+        request.log.error(erroNota);
+        return reply.send({
+          purchase: data,
+          avisoNota: erroNota.code === "23505" ? ERRO_NOTA_REPETIDA["23505"] : "A nota não foi salva. Informe de novo em Editar.",
+        });
+      }
+    }
     return reply.send({ purchase: data });
   });
 

@@ -468,3 +468,52 @@ export function limparHtmlParaGuardar(html: string, urlBase: string): string {
   const base = `<base href="${urlBase.replace(/"/g, "&quot;")}">`;
   return /<head[^>]*>/i.test(limpo) ? limpo.replace(/<head[^>]*>/i, (m) => `${m}${base}`) : `${base}${limpo}`;
 }
+
+/**
+ * Chave contida na URL do QR Code. Na versao 2 ela e o primeiro campo do parametro p, separado
+ * por barra vertical. Na versao 1, ainda impressa por alguns emissores, vem no parametro chNFe.
+ */
+function chaveDaUrl(texto: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(texto.trim());
+  } catch {
+    return null;
+  }
+  return url.searchParams.get("p")?.split("|")[0] ?? url.searchParams.get("chNFe");
+}
+
+// ========== Entrada da pessoa
+
+export type NotaInformada =
+  | { tipo: "chave"; dados: DadosDaChave }
+  | { tipo: "numero"; numero: number };
+
+/**
+ * Interpreta o que a pessoa digitou ou o app leu do QR Code.
+ * @returns A nota, ou uma mensagem de erro pronta para o usuario.
+ */
+export function interpretarNotaInformada(texto: string): NotaInformada | { erro: string } {
+  const limpo = texto.trim();
+  const daUrl = chaveDaUrl(limpo);
+  if (daUrl !== null) {
+    const dados = decodificarChave(daUrl);
+    return dados ? { tipo: "chave", dados } : { erro: "O QR Code não traz uma chave de nota fiscal válida" };
+  }
+
+  // So digitos, espacos e pontos, como a chave e o numero aparecem impressos no cupom
+  if (!/^[\d\s.]+$/.test(limpo)) {
+    return { erro: "Informe a chave de acesso (44 números) ou o número da nota" };
+  }
+  const digitos = limpo.replace(/\D/g, "");
+
+  if (digitos.length === 44) {
+    const dados = decodificarChave(digitos);
+    return dados ? { tipo: "chave", dados } : { erro: "Chave de acesso inválida. Confira os 44 números." };
+  }
+  // O numero da nota tem no maximo nove digitos. Mais que isso e chave incompleta
+  if (digitos.length >= 1 && digitos.length <= 9 && Number(digitos) > 0) {
+    return { tipo: "numero", numero: Number(digitos) };
+  }
+  return { erro: `A chave de acesso tem 44 números, e foram informados ${digitos.length}` };
+}

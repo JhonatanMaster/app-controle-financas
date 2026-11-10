@@ -5,18 +5,46 @@ import { api, ApiError } from "@/lib/api";
 import { formatBRL, formatDateTime } from "@/lib/format";
 import {
   baixarHtml,
+  erroDaNotaInformada,
   formatarChave,
   formatarCnpj,
   nomeDoModelo,
+  portalDeConsulta,
   quantidadeLegivel,
   siglaDaUf,
   unidadeLegivel,
 } from "@/lib/nota-fiscal";
 import type { FiscalNote, PurchaseItem } from "@/lib/types";
+import { CampoNotaFiscal } from "@/components/campo-nota-fiscal";
 import { Alert, Badge, Button, Card } from "@/components/ui";
 
-/** Resumo da nota no detalhe da compra, com os atalhos para ver a nota completa e baixar */
+/**
+ * Nota fiscal no detalhe da compra. A lida pelo QR Code traz itens e a pagina da SEFAZ; a informada a
+ * mao tem so a chave ou o numero, e pode ser corrigida.
+ */
 export function NotaFiscalCard({
+  familyId,
+  purchaseId,
+  nota,
+  itens,
+  onAlterada,
+  onExcluida,
+}: {
+  familyId: string;
+  purchaseId: string;
+  nota: FiscalNote | null;
+  itens: PurchaseItem[];
+  onAlterada: () => void;
+  onExcluida: () => void;
+}) {
+  if (nota?.status === "importada") {
+    return <NotaImportadaCard familyId={familyId} nota={nota} itens={itens} onExcluida={onExcluida} />;
+  }
+  return <NotaInformadaCard familyId={familyId} purchaseId={purchaseId} nota={nota} onAlterada={onAlterada} />;
+}
+
+/** Nota lida pelo QR Code, com os itens, a pagina original da SEFAZ, o download e a exclusao */
+function NotaImportadaCard({
   familyId,
   nota,
   itens,
@@ -258,8 +286,12 @@ function NotaFiscalDialog({
                 {nota.issued_at ? <Linha rotulo="Emissão" valor={formatDateTime(nota.issued_at)} /> : null}
                 {nota.authorization_protocol ? <Linha rotulo="Protocolo" valor={nota.authorization_protocol} /> : null}
               </dl>
-              <p className="mt-3 text-xs text-muted">Chave de acesso</p>
-              <p className="font-mono text-xs tracking-tight text-ink">{formatarChave(nota.access_key)}</p>
+              {nota.access_key ? (
+                <>
+                  <p className="mt-3 text-xs text-muted">Chave de acesso</p>
+                  <p className="font-mono text-xs tracking-tight text-ink">{formatarChave(nota.access_key)}</p>
+                </>
+              ) : null}
             </div>
           )}
         </div>
@@ -283,5 +315,147 @@ function Linha({ rotulo, valor, destaque }: { rotulo: string; valor: string; des
       <dt className={destaque ? "font-semibold text-ink" : "text-muted"}>{rotulo}</dt>
       <dd className={`tabular-nums ${destaque ? "text-lg font-semibold text-ink" : "text-ink"}`}>{valor}</dd>
     </div>
+  );
+}
+
+/**
+ * Nota informada a mao, pela chave ou pelo numero. Mostra o que foi informado, abre a consulta no portal
+ * da SEFAZ e permite informar, corrigir ou remover a nota depois.
+ */
+function NotaInformadaCard({
+  familyId,
+  purchaseId,
+  nota,
+  onAlterada,
+}: {
+  familyId: string;
+  purchaseId: string;
+  nota: FiscalNote | null;
+  onAlterada: () => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [valor, setValor] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  function abrirEdicao() {
+    setValor(nota?.access_key ? formatarChave(nota.access_key) : nota?.number ? String(nota.number) : "");
+    setErro(null);
+    setEditando(true);
+  }
+
+  async function salvar(notaFiscal: string | null) {
+    if (notaFiscal && erroDaNotaInformada(notaFiscal)) return;
+    setErro(null);
+    setSalvando(true);
+    try {
+      await api(`/families/${familyId}/purchases/${purchaseId}/fiscal-note`, { method: "PUT", body: { notaFiscal } });
+      setEditando(false);
+      onAlterada();
+    } catch (err) {
+      // Como o valor, a nota nao entra na fila offline, porque a chave pode estar em outra compra e
+      // a pessoa precisa saber na hora
+      setErro(err instanceof ApiError ? err.message : "Sem conexão. Salvar a nota precisa de internet.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // A consulta da SEFAZ pede captcha e nao aceita a chave pela URL, entao a chave vai para a area de
+  // transferencia e a pessoa so cola no portal
+  async function verNaSefaz() {
+    if (!nota?.access_key) return;
+    // Aberta antes do await para contar como gesto do usuario e nao cair no bloqueio de pop-up. Sem
+    // a opcao noopener, que faria o retorno ser sempre nulo, e cortando o opener a mao
+    const janela = window.open(portalDeConsulta(nota), "_blank");
+    if (janela) janela.opener = null;
+    try {
+      await navigator.clipboard.writeText(nota.access_key);
+      setAviso("Chave copiada. Cole no campo da chave de acesso no portal da SEFAZ.");
+    } catch {
+      setAviso(`Copie a chave e cole no portal da SEFAZ: ${formatarChave(nota.access_key)}`);
+    }
+    if (!janela) setAviso("O navegador bloqueou a nova aba. Libere pop-ups para este site e toque de novo.");
+  }
+
+  if (editando) {
+    return (
+      <Card className="mb-5">
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            salvar(valor.trim() || null);
+          }}
+        >
+          <CampoNotaFiscal value={valor} onChange={setValor} autoFocus />
+          {erro ? <Alert>{erro}</Alert> : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            {nota ? (
+              <Button type="button" variant="ghost" className="mr-auto text-red-700 hover:bg-red-50" onClick={() => salvar(null)} disabled={salvando}>
+                Remover nota
+              </Button>
+            ) : null}
+            <Button type="button" variant="ghost" onClick={() => setEditando(false)} disabled={salvando}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={salvando} disabled={!valor.trim() || !!erroDaNotaInformada(valor)}>
+              Salvar
+            </Button>
+          </div>
+        </form>
+      </Card>
+    );
+  }
+
+  if (!nota) {
+    return (
+      <div className="mb-5">
+        <Button variant="secondary" size="sm" onClick={abrirEdicao}>
+          + Informar nota fiscal
+        </Button>
+      </div>
+    );
+  }
+
+  const uf = siglaDaUf(nota.uf_code);
+
+  return (
+    <Card className="mb-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="brand">{nota.access_key ? nomeDoModelo(nota.model) : "Nota fiscal"}</Badge>
+            {nota.number ? <span className="text-sm font-medium text-ink">Nº {nota.number}</span> : null}
+            {nota.series ? <span className="text-xs text-muted">série {nota.series}</span> : null}
+          </div>
+          {nota.issuer_name || nota.issuer_cnpj ? (
+            <p className="mt-1.5 truncate text-sm text-ink">
+              {nota.issuer_name ?? `CNPJ ${formatarCnpj(nota.issuer_cnpj ?? "")}`}
+              {uf ? <span className="text-muted"> · {uf}</span> : null}
+            </p>
+          ) : null}
+          {nota.access_key ? (
+            <p className="mt-1 break-all font-mono text-xs text-muted">{formatarChave(nota.access_key)}</p>
+          ) : (
+            <p className="mt-1 text-xs text-muted">Sem a chave de acesso não dá para consultar na SEFAZ.</p>
+          )}
+        </div>
+      </div>
+
+      {aviso ? <div className="mt-3"><Alert tone="info">{aviso}</Alert></div> : null}
+
+      <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
+        {nota.access_key ? (
+          <Button size="sm" variant="secondary" onClick={verNaSefaz}>
+            Ver na SEFAZ
+          </Button>
+        ) : null}
+        <Button size="sm" variant="ghost" onClick={abrirEdicao}>
+          Editar
+        </Button>
+      </div>
+    </Card>
   );
 }

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../lib/auth-context.js";
 import { replyWithDbError } from "../lib/db-errors.js";
+import { ERRO_NOTA_REPETIDA, salvarNotaDaCompra, validarNotaInformada } from "../lib/notas-fiscais.js";
 import {
   buscarPaginaDaNota,
   descreverCausa,
@@ -30,6 +31,11 @@ function formaPrincipal(pagamentos: NotaLida["payments"]): string | null {
   const nomes = [...new Set(pagamentos.map((p) => p.method))];
   return nomes.join(" + ").slice(0, 60);
 }
+
+const notaSchema = z.object({
+  // Chave de acesso, URL do QR Code ou numero da nota. Nulo ou vazio remove a nota da compra
+  notaFiscal: z.string().trim().max(2000).nullable(),
+});
 
 export async function fiscalNotesRoutes(app: FastifyInstance) {
   app.post(
@@ -155,11 +161,16 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
 
     const { data: nota, error: erroNota } = await ctx.supabase
       .from("fiscal_notes")
-      .select("purchase_id")
+      .select("purchase_id, status")
       .eq("family_id", familyId)
       .eq("id", noteId)
       .single();
     if (erroNota) return replyWithDbError(request, reply, erroNota, { PGRST116: "Nota não encontrada" });
+    // A nota informada a mao fica numa compra registrada pela pessoa, e sai pelo editar sem levar a compra
+    if (nota.status !== "importada") {
+      return reply.code(400).send({ error: "Para tirar a nota desta compra, use Editar e Remover nota" });
+    }
+
 
     // Defesa caso um item do estoque passe a ser associado a compra no futuro. Excluir aqui deixaria
     // o estoque com uma entrada que nao existe mais
@@ -206,5 +217,45 @@ export async function fiscalNotesRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: "Esta nota foi registrada só pela chave, sem a página da SEFAZ" });
     }
     return reply.send({ accessKey: data.access_key, html: data.source_html });
+  });
+
+  // Fluxo editar. Informa, troca ou remove a nota de uma compra ja registrada
+  app.put("/families/:familyId/purchases/:purchaseId/fiscal-note", async (request, reply) => {
+    const ctx = await requireAuth(request, reply);
+    if (!ctx) return;
+    const { familyId, purchaseId } = request.params as { familyId: string; purchaseId: string };
+
+    const parsed = notaSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Dados inválidos" });
+    }
+
+    // Garante que a compra e desta familia antes de pendurar a nota nela
+    const { error: erroCompra } = await ctx.supabase
+      .from("purchases")
+      .select("id")
+      .eq("family_id", familyId)
+      .eq("id", purchaseId)
+      .single();
+    if (erroCompra) return replyWithDbError(request, reply, erroCompra, { PGRST116: "Compra não encontrada" });
+
+    const validacao = await validarNotaInformada(ctx.supabase, familyId, parsed.data.notaFiscal, purchaseId);
+    if (!validacao.ok) return reply.code(validacao.status).send({ error: validacao.erro });
+
+    const error = await salvarNotaDaCompra(ctx.supabase, {
+      familyId,
+      purchaseId,
+      userId: ctx.userId,
+      nota: validacao.nota,
+    });
+    if (error) return replyWithDbError(request, reply, error, ERRO_NOTA_REPETIDA);
+
+    const { data, error: erroLeitura } = await ctx.supabase
+      .from("fiscal_notes")
+      .select("id, access_key, model, status, uf_code, series, number, issuer_cnpj, created_at")
+      .eq("purchase_id", purchaseId)
+      .maybeSingle();
+    if (erroLeitura) return replyWithDbError(request, reply, erroLeitura);
+    return reply.send({ fiscalNote: data });
   });
 }
